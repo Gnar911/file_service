@@ -61,7 +61,8 @@ Use this skill when you see any of these patterns:
 - If ownership is ambiguous: stop and assign a single owner before coding.
 - If fallback is currently masking unstable behavior: fail fast, then fix root cause.
 - If operation emits one terminal result: use single-result capture, not list accumulation.
-
+- DO NOT SCATTER FUNCTION OR DUPLICATE CHECK LIKE THIS, only separate function if that function need to handle other works, OTHERWISE DO NOT SCATTER FUNCTION
+ 
 ## Completion Checks
 All checks must pass:
 - No required field/arg is optional.

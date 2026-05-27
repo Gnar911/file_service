@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import threading
 import time
-from queue import SimpleQueue
 from pathlib import Path
 
 from file_service.dispatcher.application_events import DecodeCompletedEvent, FileServiceStateEvent, ParserStatusEvent
@@ -11,7 +10,8 @@ from file_service.repository.record import Record
 from file_service.record_id import RecordId
 from file_service.srv_if import FileService, get_file_service
 from lw.base_service import ServiceState
-from native_sdk.can_parser_api import DATA_STATUS_DONE  # type: ignore[import-not-found]
+from file_service.define import MMAP_LOCAL_STORAGE_DIR
+from native_sdk.can_parser_api import DATA_STATUS_DONE
 import pytest
 from PySide6.QtCore import (
     QCoreApplication,
@@ -39,9 +39,9 @@ def _start_service() -> FileService:
     assert running_event.wait(timeout=TIMEOUT)
     return file_srv
 
-def test_01_start_service() -> None:
+def test_01_start_service() -> FileService:
     """Start FileService and wait until it publishes RUNNING."""
-    _start_service()
+    return _start_service()
 
 
 def test_02_stop_service() -> None:
@@ -62,23 +62,25 @@ def test_02_stop_service() -> None:
     "file_path",
     [
         "/home/gnar911/Desktop/2025-02-11_11-14-53_仕様情報切替 1.asc",
-#        "/home/gnar911/Desktop/2025-02-11_11-14-53_仕様情報切替 1_x10.asc",
-#        "/home/gnar911/Desktop/2025-02-11_11-14-53_仕様情報切替 1_x100.asc",
+        "/home/gnar911/Desktop/2025-02-11_11-14-53_仕様情報切替 1_x10.asc",
+        "/home/gnar911/Desktop/2025-02-11_11-14-53_仕様情報切替 1_x100.asc",
     ],
 )
-def test_03_parse_log_file(file_path: str) -> None:
+
+def test_03_parse_log_file(file_path: str) -> RecordId:
     parse_event = threading.Event()
     app = QCoreApplication.instance()
     if app is None:
         app = QCoreApplication([])
         
-    file_srv = _start_service()
+    file_srv = test_01_start_service()
     normalized_file_path = str(file_path)
-    parse_record_id_q: SimpleQueue[RecordId] = SimpleQueue()
+    parsed_record_id: RecordId | None = None
 
     def _on_parser_status(event: ParserStatusEvent) -> None:
+        nonlocal parsed_record_id
         if event.status == DATA_STATUS_DONE and event.record_id is not None:
-            parse_record_id_q.put(event.record_id)
+            parsed_record_id = event.record_id
             parse_event.set()
 
     file_srv.subscribe(
@@ -94,16 +96,51 @@ def test_03_parse_log_file(file_path: str) -> None:
         parse_event.wait(timeout=POLL_INTERVAL)
 
     assert parse_event.is_set()
-    assert not parse_record_id_q.empty()
-    record_id = parse_record_id_q.get_nowait()
-    assert parse_record_id_q.empty()
+    assert parsed_record_id is not None
+    record_id = parsed_record_id
     assert record_id in file_srv.list_log_records()
 
     record = file_srv.get_record(record_id)
     assert record is not None
     assert record.record_id == record_id
-    assert record.file_path.endswith(".data.mmap")
     assert record.has_runtime_mmaps()
+    print("runtime_mmap_paths:", record.raw.data_segment_paths(), record.raw.index_segment_paths())
+
+    return record_id
+
+
+@pytest.mark.parametrize(
+    "file_path",
+    [
+        "/home/gnar911/Desktop/2025-02-11_11-14-53_仕様情報切替 1.asc",
+        "/home/gnar911/Desktop/2025-02-11_11-14-53_仕様情報切替 1_x10.asc",
+        "/home/gnar911/Desktop/2025-02-11_11-14-53_仕様情報切替 1_x100.asc",
+    ],
+)
+def test_04_save_record(file_path: str) -> None:
+    file_srv = _start_service()
+    record_id = test_03_parse_log_file(file_path)
+
+    saved_count = file_srv.save_record(record_id)
+    assert saved_count > 0
+
+    record = file_srv.get_record(record_id)
+    assert record is not None
+    assert record.record_id == record_id
+
+    target_dir = MMAP_LOCAL_STORAGE_DIR / record_id.path_token()
+    assert target_dir.exists()
+    assert record.get_mmap_path().parent == target_dir
+
+    runtime_paths = record.get_runtime_mmap_paths()
+    assert runtime_paths["data"]
+    assert runtime_paths["index"]
+    assert runtime_paths["channel_index"]
+    assert runtime_paths["direction_index"]
+    assert all(path.parent == target_dir for path in runtime_paths["data"])
+    assert all(path.parent == target_dir for path in runtime_paths["index"])
+    assert all(path.parent == target_dir for path in runtime_paths["channel_index"])
+    assert all(path.parent == target_dir for path in runtime_paths["direction_index"])
 
     # initial_metadata = record.get_metadata()
     # assert initial_metadata["record_id"] == record_id
@@ -135,32 +172,3 @@ def test_03_parse_log_file(file_path: str) -> None:
     # assert metadata["mmap_file_count"] > 0
     # assert metadata["decoded_db_file_paths"] == []
     # assert "decoded" not in metadata
-
-# MMAP_BASE = (
-#     "/home/gnar911/Desktop/"
-#     "20260122 APP WEBSITE - CAN ANALYZER 3.0 CBCM TOOL APP ARC/CAN_Analyzer_MVVM/"
-#     "packages/can_sdk/src/can_sdk/dumps/mmap"
-# )
-
-# @pytest.mark.parametrize(
-#     "test_path",
-#     [
-#         MMAP_BASE,
-#     ],
-# )
-# def test_04_create_record_get_record(test_path: str) -> None:
-#     file_srv = _start_service()
-
-#     assert Path(test_path).exists(), f"MMAP base path does not exist: {test_path}"
-
-#     record_id = file_srv.create_record()
-
-#     assert isinstance(record_id, RecordId)
-#     assert record_id in file_srv.list_log_records()
-
-#     record = file_srv.get_record(record_id)
-
-#     assert record is not None
-#     assert record.record_id == record_id
-#     assert Path(record.get_mmap_path()).parent.name == "mmap"
-#     assert Path(record.data_handler.data_mmap_path).name == f"{record_id.path_token()}.data.mmap"

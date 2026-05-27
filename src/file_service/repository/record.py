@@ -4,7 +4,8 @@ from pathlib import Path
 import shutil
 from typing import Any
 
-from can_sdk.data_object import CANLogDecodedDiskFile, CANLogRawDiskFile
+from file_service.repository.file_handler.data_mmap_handler import CANLogRawDiskFile
+from file_service.repository.file_handler.decode_mmap_handler import CANLogDecodedDiskFile
 from lw.logger_setup import LOG
 
 from file_service.define import DATA_DIR
@@ -46,41 +47,27 @@ class Record:
         return base + ".direction.mmap"
 
     @staticmethod
-    def mmap_family_paths(mmap_path: str) -> list[Path]:
-        base = Path(str(mmap_path))
-        stem = base.name[:-5] if base.name.endswith(".mmap") else base.name
-        stem_parts = stem.rsplit(".", 1)
-        if len(stem_parts) == 2 and stem_parts[1].isdigit() and len(stem_parts[1]) == 3:
-            stem = stem_parts[0]
-
-        segments = sorted(base.parent.glob(f"{stem}.[0-9][0-9][0-9].mmap"))
-        if segments:
-            return segments
-        return [base] if base.exists() else []
-
-    @staticmethod
-    def copy_mmap_family(source_path: str, destination_path: str) -> int:
-        source = Path(source_path)
-        destination = Path(destination_path)
-        source_stem = source.name[:-5] if source.name.endswith(".mmap") else source.name
-        destination_stem = destination.name[:-5] if destination.name.endswith(".mmap") else destination.name
+    def _copy_segment_paths(self, source_paths: list[Path], source_base_path: str, destination_base_path: str) -> int:
+        source_base = Path(source_base_path)
+        destination_base = Path(destination_base_path)
+        source_stem = source_base.name[:-5] if source_base.name.endswith(".mmap") else source_base.name
+        destination_stem = destination_base.name[:-5] if destination_base.name.endswith(".mmap") else destination_base.name
 
         copied = 0
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        for path in Record.mmap_family_paths(source_path):
-            if path.name == source.name:
-                target_path = destination
+        destination_base.parent.mkdir(parents=True, exist_ok=True)
+        for path in source_paths:
+            if path.name == source_base.name:
+                target_path = destination_base
             else:
                 suffix = path.name[len(source_stem):]
-                target_path = destination.parent / f"{destination_stem}{suffix}"
+                target_path = destination_base.parent / f"{destination_stem}{suffix}"
             shutil.copy2(path, target_path)
             copied += 1
         return copied
 
-    @staticmethod
-    def delete_mmap_family(mmap_path: str) -> int:
+    def _delete_segment_paths(self, paths: list[Path]) -> int:
         removed = 0
-        for path in Record.mmap_family_paths(mmap_path):
+        for path in paths:
             try:
                 if path.exists():
                     path.unlink()
@@ -91,6 +78,14 @@ class Record:
 
     def has_runtime_mmaps(self) -> bool:
         return bool(self.data_handler.data_segment_paths()) and bool(self.data_handler.index_segment_paths())
+
+    def get_runtime_mmap_paths(self) -> dict[str, list[Path]]:
+        return {
+            "data": self.data_handler.data_segment_paths(),
+            "index": self.data_handler.index_segment_paths(),
+            "channel_index": self.data_handler.channel_index_segment_paths(),
+            "direction_index": self.data_handler.direction_index_segment_paths(),
+        }
 
     def has_decode_mmaps(self) -> bool:
         decode = self.decode_hander
@@ -129,9 +124,9 @@ class Record:
         return DATA_DIR / self.record_id.path_token()
 
     def save_record(self) -> int:
-        data_path = self.data_handler.data_mmap_path
-        index_path = self.data_handler.index_mmap_path
-        if not data_path or not index_path:
+        data_paths = self.data_handler.data_segment_paths()
+        index_paths = self.data_handler.index_segment_paths()
+        if not data_paths or not index_paths:
             return 0
 
         target_dir = self.get_data_dir()
@@ -144,16 +139,16 @@ class Record:
         saved_direction_index_path = self.direction_index_path_from_index(saved_index_path)
 
         copied = 0
-        copied += self.copy_mmap_family(data_path, saved_data_path)
-        copied += self.copy_mmap_family(index_path, saved_index_path)
+        copied += self._copy_segment_paths(data_paths, self.data_handler.data_mmap_path, saved_data_path)
+        copied += self._copy_segment_paths(index_paths, self.data_handler.index_mmap_path, saved_index_path)
 
-        channel_index_path = self.data_handler.channel_index_mmap_path
-        direction_index_path = self.data_handler.direction_index_mmap_path
+        channel_paths = self.data_handler.channel_index_segment_paths()
+        direction_paths = self.data_handler.direction_index_segment_paths()
 
-        if channel_index_path:
-            copied += self.copy_mmap_family(channel_index_path, saved_channel_index_path)
-        if direction_index_path:
-            copied += self.copy_mmap_family(direction_index_path, saved_direction_index_path)
+        if channel_paths:
+            copied += self._copy_segment_paths(channel_paths, self.data_handler.channel_index_mmap_path, saved_channel_index_path)
+        if direction_paths:
+            copied += self._copy_segment_paths(direction_paths, self.data_handler.direction_index_mmap_path, saved_direction_index_path)
 
         if copied > 0:
             self.data_handler.data_mmap_path = saved_data_path
@@ -163,10 +158,10 @@ class Record:
 
     def delete_runtime_mmaps(self) -> int:
         removed = 0
-        removed += self.delete_mmap_family(self.data_handler.data_mmap_path)
-        removed += self.delete_mmap_family(self.data_handler.index_mmap_path)
-        removed += self.delete_mmap_family(self.data_handler.channel_index_mmap_path)
-        removed += self.delete_mmap_family(self.data_handler.direction_index_mmap_path)
+        removed += self._delete_segment_paths(self.data_handler.data_segment_paths())
+        removed += self._delete_segment_paths(self.data_handler.index_segment_paths())
+        removed += self._delete_segment_paths(self.data_handler.channel_index_segment_paths())
+        removed += self._delete_segment_paths(self.data_handler.direction_index_segment_paths())
 
         decode_signal_dir_path = self._as_str(getattr(self.decode_hander, "decode_signal_dir_mmap_path", ""))
         decode_changed_index_path = self._as_str(getattr(self.decode_hander, "decode_row_index_changed_mmap_path", ""))
@@ -195,10 +190,6 @@ class Record:
     def decode_handler(self) -> CANLogDecodedDiskFile:
         return self.decode_hander
 
-    @property
-    def file_path(self) -> str:
-        return self.data_handler.data_mmap_path
-
     def get_decoded(self, db_file_path: str) -> CANLogDecodedDiskFile | None:
         _ = db_file_path
         return self.decode_hander if self.has_decode_mmaps() else None
@@ -207,14 +198,9 @@ class Record:
         raw = self.data_handler
         metadata: dict[str, Any] = {
             "record_id": self.record_id,
-            "dataset_path": self.file_path,
             "raw": raw,
             "raw_state": getattr(raw, "state", None),
             "raw_is_loading": bool(getattr(raw, "is_loading", False)),
-            "raw_data_mmap_path": raw.data_mmap_path,
-            "raw_index_mmap_path": raw.index_mmap_path,
-            "raw_channel_index_mmap_path": raw.channel_index_mmap_path,
-            "raw_direction_index_mmap_path": raw.direction_index_mmap_path,
             "total_lines": int(raw.total_lines),
             "verified_size": int(raw.verified_size),
             "mmap_file_count": int(raw.mmap_file_count),

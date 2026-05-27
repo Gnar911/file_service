@@ -1,0 +1,6 @@
+__pycache__/
+**/__pycache__/
+*.egg-info/
+**/*.egg-info/
+src/file_service/repository/data/
+src/file_service/data/

@@ -46,6 +46,8 @@ class ParserWorkerRegistration:
 
     notifier: Any | None = None
 
+    kind: str = "parser"
+
 class FileServiceDispatcher:
     def __init__(self) -> None:
         self.event_on_service_state_changed = ObservableEvent(FileServiceStateEvent)
@@ -133,6 +135,20 @@ class FileServiceDispatcher:
     def on_decode_callback_event(self) -> None:
         pass
 
+    def _on_decoder_wakeup(self, registration: ParserWorkerRegistration) -> None:
+        self.on_decode_callback_event(registration)
+
+    def on_decode_callback_event(self, registration: ParserWorkerRegistration) -> None:
+        registration.wakeup.drain()
+        done = True
+        try:
+            done = bool(registration.callback())
+        except Exception:
+            LOG.exception("Failed to handle decoder callback")
+            done = True
+        if done:
+            self.unregister_worker(registration)
+
     def on_parser_callback_event(
          self,
         registration: ParserWorkerRegistration,
@@ -175,6 +191,7 @@ class FileServiceDispatcher:
             file_path=file_path,
             wakeup=wakeup,
             callback=callback,
+            kind="parser",
         )
 
         # ----------------------------------------------------
@@ -216,6 +233,32 @@ class FileServiceDispatcher:
 
         self._workers[id(registration)] = \
             registration
+
+    def register_decoder_worker(
+        self,
+        *,
+        file_path: str,
+        wakeup,
+        callback: Callable[[], bool],
+    ) -> None:
+        wait_obj = wakeup.wait_object()
+
+        registration = ParserWorkerRegistration(
+            file_path=file_path,
+            wakeup=wakeup,
+            callback=callback,
+            kind="decoder",
+        )
+
+        if not IS_WINDOWS:
+            notifier = QSocketNotifier(wait_obj, QSocketNotifier.Read)
+            notifier.activated.connect(lambda _fd: self._on_decoder_wakeup(registration))
+        else:
+            notifier = QWinEventNotifier(wait_obj)
+            notifier.activated.connect(lambda _handle: self._on_decoder_wakeup(registration))
+
+        registration.notifier = notifier
+        self._workers[id(registration)] = registration
 
 
     def unregister_worker(

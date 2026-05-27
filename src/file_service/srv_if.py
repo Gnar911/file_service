@@ -29,7 +29,7 @@ class FileService:
     def parse_log_file(self, file_path: str) -> bool:
         return self._service.parse_log_file(file_path)
 
-    def decode(self, record_id: RecordId, db_file_path: str) -> RecordId | None:
+    def decode_by_DBC(self, record_id: RecordId, db_file_path: str) -> bool:
         return self._service.decode(record_id, db_file_path)
 
 ##################### Record buses API ##########################
