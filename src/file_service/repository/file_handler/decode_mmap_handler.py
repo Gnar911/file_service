@@ -15,12 +15,7 @@ CANID = int
 SigID = int
 @dataclass
 class CANLogDecodedDiskFile:
-    #file_path: str
-    decode_signal_dir_mmap_path: str = field(default="")
-    decode_row_index_changed_mmap_path: str = field(default="")
-    decode_row_index_mmap_path: str = field(default="")
-    decode_value_mmap_path: str = field(default="")
-    decode_rawvalue_mmap_path: str = field(default="")
+    path : Path
     decode_verified_size: int = field(default=0)
     decode_mmap_file_count: int = field(default=0)
     decode_current_size: int = field(default=0)
@@ -40,6 +35,31 @@ class CANLogDecodedDiskFile:
     #     if not self.file_path:
     #         return ""
     #     return Path(self.file_path).name
+
+    def __post_init__(self) -> None:
+        self.path = Path(self.path)
+        if not str(self.path):
+            raise ValueError("path is required")
+
+    @property
+    def decode_signal_dir_mmap_path(self) -> str:
+        return str(self.path.with_name(f"{self.path.name}.signal_dir.mmap"))
+
+    @property
+    def decode_row_index_changed_mmap_path(self) -> str:
+        return str(self.path.with_name(f"{self.path.name}.row_index_changed.mmap"))
+
+    @property
+    def decode_row_index_mmap_path(self) -> str:
+        return str(self.path.with_name(f"{self.path.name}.row_index.mmap"))
+
+    @property
+    def decode_value_mmap_path(self) -> str:
+        return str(self.path.with_name(f"{self.path.name}.value.mmap"))
+
+    @property
+    def decode_rawvalue_mmap_path(self) -> str:
+        return str(self.path.with_name(f"{self.path.name}.rawvalue.mmap"))
 
     @property
     def decode_signal_name_list(self) -> List[SignalName]:

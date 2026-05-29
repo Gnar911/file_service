@@ -41,29 +41,28 @@ class RecordRepository:
 
     def create_record(self) -> RecordId:
         record_id = RecordId.new()
-        mmap_name = record_id.path_token()
+        base_name = record_id.path_token()
         record = Record(
             record_id=record_id,
-            mmap_dir=MMAP_TEMP_STORAGE_DIR,
-            mmap_name=mmap_name,
+            base_dir=MMAP_TEMP_STORAGE_DIR,
+            base_name=base_name,
         )
-        mmap_path_key = self._normalize_mmap_base(record.get_mmap_path())
+        mmap_path_key = self._normalize_mmap_base(record.get_base_path())
 
         with self.data_lock:
             self._records_by_id[record_id] = record
             self._record_id_by_mmap_path[mmap_path_key] = record_id
         return record_id
 
-    def get_mmap_path(self, record_id: RecordId) -> Path:
-        with self.data_lock:
-            record = self._records_by_id.get(record_id)
-        if record is None:
-            raise KeyError(f"Record not found: {record_id}")
-        return record.get_mmap_path()
-
     def generate_mmap_path(self) -> Path:
         record_id = self.create_record()
         return self.get_mmap_path(record_id)
+
+    def get_mmap_path(self, record_id: RecordId) -> Path:
+        record = self.get_record(record_id)
+        if record is None:
+            raise KeyError(f"record_id not found: {record_id}")
+        return record.get_base_path()
 
     def get_record_id_by_mmap_path(self, mmap_path: str | Path) -> Optional[RecordId]:
         key = self._normalize_mmap_base(mmap_path)
@@ -107,7 +106,7 @@ class RecordRepository:
             record = self._records_by_id.pop(record_id, None)
             if record is None:
                 return False
-            mmap_key = self._normalize_mmap_base(record.get_mmap_path())
+            mmap_key = self._normalize_mmap_base(record.get_base_path())
             self._record_id_by_mmap_path.pop(mmap_key, None)
 
         if delete_runtime_mmaps:

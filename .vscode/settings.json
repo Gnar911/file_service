@@ -2,8 +2,8 @@
     "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
     "python.analysis.extraPaths": [
         "${workspaceFolder}/src",
-        "${workspaceFolder}/../can_sdk/src",
-        "${workspaceFolder}/../lw/src",
-        "${workspaceFolder}/../native_sdk/src"
+        "/home/gnar911/Desktop/20260122 APP WEBSITE - CAN ANALYZER 3.0 CBCM TOOL APP ARC/CAN_Analyzer_MVVM/packages/can_sdk/src",
+        "/home/gnar911/Desktop/20260122 APP WEBSITE - CAN ANALYZER 3.0 CBCM TOOL APP ARC/CAN_Analyzer_MVVM/packages/lw/src",
+        "/home/gnar911/Desktop/20260122 APP WEBSITE - CAN ANALYZER 3.0 CBCM TOOL APP ARC/CAN_Analyzer_MVVM/packages/native_sdk/src"
     ]
 }

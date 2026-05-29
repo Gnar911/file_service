@@ -1,5 +1,6 @@
 from native_sdk.can_parser_api import CanParserLib as _CanParserLib  # type: ignore[import-not-found]
 from native_sdk.can_parser_api import DATA_STATUS_ERROR  # type: ignore[import-not-found]
+from native_sdk.can_parser_api import MmapData  # type: ignore[import-not-found]
 from lw.logger_setup import LOG
 
 ### RUN on child process, binding class for native C++ parser
@@ -15,7 +16,15 @@ class NativeParser:
         return LogParser()._detect_format(file_path)
 
     @classmethod
-    def get_status(cls) -> int:
+    def get_status(cls, record_id=None, data_mmap_path: str | None = None) -> int:
+        if data_mmap_path:
+            try:
+                with MmapData(str(data_mmap_path)) as mmap_data:
+                    return int(mmap_data.status)
+            except Exception as error:
+                LOG.error("Parser mmap status read failed for %s: %s", record_id, error)
+                return int(DATA_STATUS_ERROR)
+
         try:
             return int(cls._lib.get_status())
         except Exception as error:

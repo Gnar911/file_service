@@ -4,33 +4,53 @@ from pathlib import Path
 import shutil
 from typing import Any
 
+from file_service.define import MMAP_LOCAL_STORAGE_DIR
 from file_service.repository.file_handler.data_mmap_handler import CANLogRawDiskFile
 from file_service.repository.file_handler.decode_mmap_handler import CANLogDecodedDiskFile
+from file_service.repository.file_handler.dbc_pkl_handler import DBCPklHandler
 from lw.logger_setup import LOG
 
-from file_service.define import DATA_DIR
 from file_service.record_id import RecordId
 
 
 class Record:
-    def __init__(self, record_id: RecordId, mmap_dir: str | Path, mmap_name: str):
-        if not str(mmap_dir):
-            raise ValueError("mmap_dir is required")
-        if not str(mmap_name):
-            raise ValueError("mmap_name is required")
+    def __init__(self, record_id: RecordId, base_dir: str | Path, base_name: str):
+        if not str(base_dir):
+            raise ValueError("base_dir is required")
+        if not str(base_name):
+            raise ValueError("base_name is required")
+
+        token_base_name = record_id.path_token()
+        if str(base_name) != token_base_name:
+            raise ValueError("base_name must equal record_id.path_token()")
 
         self.record_id: RecordId = record_id
         self.data_handler: CANLogRawDiskFile = CANLogRawDiskFile(
-            mmap_dir=str(mmap_dir),
-            mmap_name=str(mmap_name),
+            mmap_dir=str(base_dir),
+            mmap_name=token_base_name,
         )
-        self.decode_hander: CANLogDecodedDiskFile = CANLogDecodedDiskFile()
+        base_path = Path(base_dir) / token_base_name
+        self.decode_hander: CANLogDecodedDiskFile = CANLogDecodedDiskFile(path=base_path)
+        self.pkl_handler: DBCPklHandler = DBCPklHandler(pkl_dir=Path(base_dir))
+
+    def is_decoded(self) -> bool:
+        return self.has_decode_mmaps()
 
     def get_record_id(self) -> RecordId:
         return self.record_id
 
-    def get_mmap_path(self) -> Path:
+    def get_base_path(self) -> Path:
         return Path(self.data_handler.mmap_dir) / self.data_handler.mmap_name
+
+    def get_dbc_pkl_path(self) -> Path:
+        base_path = self.get_base_path()
+        return base_path.parent / f"{base_path.name}.pkl"
+
+    @staticmethod
+    def _normalize_path_token(value: str) -> str:
+        filtered = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in str(value))
+        return filtered.strip("_") or "default"
+
 
     @staticmethod
     def _as_str(value: Any) -> str:
@@ -47,7 +67,7 @@ class Record:
         return base + ".direction.mmap"
 
     @staticmethod
-    def _copy_segment_paths(self, source_paths: list[Path], source_base_path: str, destination_base_path: str) -> int:
+    def _copy_segment_paths(source_paths: list[Path], source_base_path: str, destination_base_path: str) -> int:
         source_base = Path(source_base_path)
         destination_base = Path(destination_base_path)
         source_stem = source_base.name[:-5] if source_base.name.endswith(".mmap") else source_base.name
@@ -61,6 +81,12 @@ class Record:
             else:
                 suffix = path.name[len(source_stem):]
                 target_path = destination_base.parent / f"{destination_stem}{suffix}"
+
+            # Save can be invoked repeatedly; treat already-copied segments as success.
+            if path.resolve() == target_path.resolve():
+                copied += 1
+                continue
+
             shutil.copy2(path, target_path)
             copied += 1
         return copied
@@ -76,6 +102,26 @@ class Record:
                 LOG.debug("Failed to delete mmap file %s: %s", path, exc)
         return removed
 
+    def delete_mmap_family(self, base_path: str | Path) -> int:
+        base = Path(base_path)
+        paths: list[Path] = []
+        if base.exists():
+            paths.append(base)
+
+        stem = base.name[:-5] if base.name.endswith(".mmap") else base.name
+        paths.extend(sorted(base.parent.glob(f"{stem}.[0-9][0-9][0-9].mmap")))
+
+        # Deduplicate while preserving order.
+        seen: set[Path] = set()
+        ordered_paths: list[Path] = []
+        for path in paths:
+            if path in seen:
+                continue
+            seen.add(path)
+            ordered_paths.append(path)
+
+        return self._delete_segment_paths(ordered_paths)
+
     def has_runtime_mmaps(self) -> bool:
         return bool(self.data_handler.data_segment_paths()) and bool(self.data_handler.index_segment_paths())
 
@@ -85,6 +131,24 @@ class Record:
             "index": self.data_handler.index_segment_paths(),
             "channel_index": self.data_handler.channel_index_segment_paths(),
             "direction_index": self.data_handler.direction_index_segment_paths(),
+        }
+
+    def get_decode_mmap_paths(self) -> dict[str, list[Path]]:
+        if not self.has_decode_mmaps():
+            return {
+                "signal_dir": [],
+                "row_index_changed": [],
+                "row_index": [],
+                "value": [],
+                "rawvalue": [],
+            }
+
+        return {
+            "signal_dir": self.decode_hander.decode_signal_dir_segment_paths(),
+            "row_index_changed": self.decode_hander.decode_row_index_changed_segment_paths(),
+            "row_index": self.decode_hander.decode_row_index_segment_paths(),
+            "value": self.decode_hander.decode_value_segment_paths(),
+            "rawvalue": self.decode_hander.decode_rawvalue_segment_paths(),
         }
 
     def has_decode_mmaps(self) -> bool:
@@ -120,16 +184,13 @@ class Record:
         if self.has_decode_mmaps() and hasattr(self.decode_hander, "refresh_decode_mmap_runtime"):
             self.decode_hander.refresh_decode_mmap_runtime()
 
-    def get_data_dir(self) -> Path:
-        return DATA_DIR / self.record_id.path_token()
-
     def save_record(self) -> int:
         data_paths = self.data_handler.data_segment_paths()
         index_paths = self.data_handler.index_segment_paths()
         if not data_paths or not index_paths:
             return 0
 
-        target_dir = self.get_data_dir()
+        target_dir = MMAP_LOCAL_STORAGE_DIR / self.record_id.path_token()
         target_dir.mkdir(parents=True, exist_ok=True)
 
         base_name = self.data_handler.mmap_name
@@ -186,14 +247,6 @@ class Record:
     def raw(self) -> CANLogRawDiskFile:
         return self.data_handler
 
-    @property
-    def decode_handler(self) -> CANLogDecodedDiskFile:
-        return self.decode_hander
-
-    def get_decoded(self, db_file_path: str) -> CANLogDecodedDiskFile | None:
-        _ = db_file_path
-        return self.decode_hander if self.has_decode_mmaps() else None
-
     def get_metadata(self, db_file_path: str | None = None) -> dict[str, Any]:
         raw = self.data_handler
         metadata: dict[str, Any] = {
@@ -208,6 +261,6 @@ class Record:
         }
 
         if db_file_path is not None:
-            metadata["decoded"] = self.get_decoded(db_file_path)
+            metadata["decoded"] = self.decode_hander if self.has_decode_mmaps() else None
 
         return metadata

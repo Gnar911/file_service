@@ -4,8 +4,28 @@ import struct
 from pathlib import Path
 
 from lw.logger_setup import LOG
-from native_sdk.can_decoder_api import CanDecoderLib, DecodeDB, estimate_sample_count
+from native_sdk.can_decoder_api import (
+    CanDecoderLib,
+    DecodeDB,
+    RowIndexMmap,
+    DECODE_STATUS_ERROR,
+    estimate_sample_count,
+)
 from native_sdk.can_parser_api import IndexMmapData, MmapData
+
+
+class NativeDecoder:
+    @classmethod
+    def get_status(cls, record_id=None, row_index_mmap_path: str | None = None) -> int:
+        if not row_index_mmap_path:
+            return int(DECODE_STATUS_ERROR)
+
+        try:
+            with RowIndexMmap(str(row_index_mmap_path)) as row_index_mmap:
+                return int(row_index_mmap.status)
+        except Exception as error:
+            LOG.error("Decode mmap status read failed for %s: %s", record_id, error)
+            return int(DECODE_STATUS_ERROR)
 
 
 def _segment_paths(base_path: str) -> list[Path]:
@@ -22,8 +42,8 @@ def decode_one_file(
     record_mmap_path: Path,
 ) -> bool:
     base = Path(record_mmap_path)
-    decode_dir_p = base.parent / Path(db_file_path).stem
-    decode_dir_p.mkdir(parents=True, exist_ok=True)
+    # Keep decode outputs flat in the same temp folder as parse mmaps.
+    decode_dir_p = base.parent
 
     data_path = str(base.with_name(base.name + ".data.mmap"))
     index_path = str(base.with_name(base.name + ".index.mmap"))

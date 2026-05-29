@@ -4,9 +4,8 @@ import os
 import pickle
 from pathlib import Path
 
-from can_sdk.dbc_manager import CANDBInfo, MIXED_DB_KEY
+from can_sdk.data_object import CANDBInfo
 from lw.logger_setup import LOG
-
 
 class DBCPklHandler:
 	def __init__(self, pkl_dir: str | Path):
@@ -25,8 +24,6 @@ class DBCPklHandler:
 
 	@staticmethod
 	def _stem_from_db_file_path(db_file_path: str) -> str:
-		if db_file_path == MIXED_DB_KEY:
-			return "mix"
 		return os.path.splitext(os.path.basename(db_file_path))[0]
 
 	def get_pkl_path(self, db_file_path: str) -> Path:

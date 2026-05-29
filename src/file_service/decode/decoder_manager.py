@@ -12,7 +12,7 @@ from ..repository.can_decode_repository import CANDecodeRepository
 from ..repository.record_repository import CANLogRepository, MMAP_DIR
 from lw.logger_setup import LOG
 from lw.observer import ObservableEvent
-from can_sdk.dbc_manager import CANDBInfo, MIXED_DB_KEY
+from can_sdk.dbc_manager import CANDBInfo
 from can_sdk.data_object import SignalFilter, CANLogDecodedDiskFile, CANLogRawDiskFile
 from native_sdk.can_decoder_api import (
     DecodeDB,

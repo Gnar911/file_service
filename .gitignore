@@ -4,3 +4,5 @@ __pycache__/
 **/*.egg-info/
 src/file_service/repository/data/
 src/file_service/data/
+src/file_service/parser/dumps/mmap/
+*.mmap

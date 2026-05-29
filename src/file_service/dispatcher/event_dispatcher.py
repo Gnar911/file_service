@@ -6,9 +6,11 @@ from typing import Any, Callable
 from lw.logger_setup import LOG
 from lw.observer import ObservableEvent
 from .application_events import (
+    DBCLoadedEvent,
     DecodeCompletedEvent,
     DecodeFileNotFoundEvent,
     DecodeProgressEvent,
+    DecodeStatusEvent,
     DecodeSignalListEvent,
     DecodeStartedEvent,
     DecoderStatusEvent,
@@ -58,6 +60,8 @@ class FileServiceDispatcher:
         self.event_on_decode_progress = ObservableEvent(DecodeProgressEvent)
         self.event_on_decode_signal_list = ObservableEvent(DecodeSignalListEvent)
         self.event_on_parser_status_changed = ObservableEvent(ParserStatusEvent)
+        self.event_on_decode_status_changed = ObservableEvent(DecodeStatusEvent)
+        self.event_on_dbc_loaded = ObservableEvent(DBCLoadedEvent)
         self.event_on_worker_health_changed = ObservableEvent(FileWorkerHealthEvent)
         self.event_on_worker_raw_status_changed = ObservableEvent(FileWorkerRawStatusEvent)
 
@@ -78,6 +82,10 @@ class FileServiceDispatcher:
             self.event_on_decode_signal_list,
             ParserStatusEvent: 
             self.event_on_parser_status_changed,
+            DecodeStatusEvent:
+            self.event_on_decode_status_changed,
+            DBCLoadedEvent:
+            self.event_on_dbc_loaded,
             FileWorkerHealthEvent: 
             self.event_on_worker_health_changed,
             FileWorkerRawStatusEvent: 

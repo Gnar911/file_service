@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from ..repository.record_repository import MMAP_DIR
 from lw.logger_setup import LOG
 from lw.observer import ObservableEvent
-from can_sdk.dbc_manager import CANDBInfo, MIXED_DB_KEY
+from can_sdk.dbc_manager import CANDBInfo
 from can_sdk.data_object import SignalFilter, CANLogDecodedDiskFile, CANLogRawDiskFile
 from native_sdk.can_decoder_api import (
     DecodeDB, SignalDirMmap,
@@ -34,10 +34,7 @@ def _segment_paths(base_path: str) -> list[Path]:
 
 
 def _get_candb_pkl_path(db_file_path: str) -> str:
-    if db_file_path == MIXED_DB_KEY:
-        stem = "mix"
-    else:
-        stem = os.path.splitext(os.path.basename(db_file_path))[0]
+    stem = os.path.splitext(os.path.basename(db_file_path))[0]
     return os.path.join(_DBC_PKL_DIR, stem + ".pkl")
 
 

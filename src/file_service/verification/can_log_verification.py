@@ -18,7 +18,7 @@ class CANLogVerification:
         if parser_instance._detect_format(normalized) is None:
             LOG.info("Unsupported CAN log file format: %s", normalized)
             return False
-
+        
         return True
 
     def verify_log_file(self, file_path: str) -> bool:

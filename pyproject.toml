@@ -8,6 +8,9 @@ version = "0.1.0"
 description = "Parser/decoder file worker service"
 requires-python = ">=3.10"
 
+[project.optional-dependencies]
+test = ["pytest-dependency"]
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 
@@ -16,3 +19,6 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+markers = [
+	"dependency: test dependency graph managed by pytest-dependency",
+]

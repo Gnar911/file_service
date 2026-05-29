@@ -26,12 +26,28 @@ class FileService:
         return self._service.state
 
 ###################### Log file parse, decode API ###########################
-    def parse_log_file(self, file_path: str) -> bool:
-        return self._service.parse_log_file(file_path)
+    def parse_log(self, file_path: str, record_id: RecordId | None = None,) -> bool:
+        return self._service.parse_log_file(file_path, record_id=record_id,)
+
+    def parse_dbc(self, db_file_path: str, record_id: RecordId | None = None,) -> bool:
+        return self._service.parse_dbc_file(db_file_path, record_id=record_id,)
+
+    def decode(self, record_id: RecordId, dbc_file_path: str,) -> bool:
+        return self._service.decode(record_id, dbc_file_path,)
+
+    # Backward-compatible aliases.
+    def parse_log_file(self, file_path: str, record_id: RecordId | None = None) -> bool:
+        return self.parse_log(file_path, record_id=record_id)
+
+    def parse_dbc_file(self, db_file_path: str, record_id: RecordId | None = None) -> bool:
+        return self.parse_dbc(db_file_path, record_id=record_id)
 
     def decode_by_DBC(self, record_id: RecordId, db_file_path: str) -> bool:
-        return self._service.decode(record_id, db_file_path)
+        return self.decode(record_id, db_file_path)
 
+    def decode_by_dbc(self, record_id: RecordId, db_file_path: str) -> bool:
+        return self.decode(record_id, db_file_path)
+    
 ##################### Record buses API ##########################
     def start_recording(self) -> bool:
         return self._service.start_recording()
