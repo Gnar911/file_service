@@ -4,14 +4,15 @@ import struct
 from pathlib import Path
 
 from lw.logger_setup import LOG
-from native_sdk.can_decoder_api import (
+from file_service.decode.native.can_decoder_api import (
     CanDecoderLib,
     DecodeDB,
     RowIndexMmap,
     DECODE_STATUS_ERROR,
     estimate_sample_count,
 )
-from native_sdk.can_parser_api import IndexMmapData, MmapData
+from file_service.parser.native.can_parser_api import IndexMmapData, MmapData
+from file_service.parser.native.can_parser_api import MmapHeaderConstract
 
 
 class NativeDecoder:
@@ -73,9 +74,9 @@ def decode_one_file(
             total_rows = 0
             for seg in data_segments:
                 with open(seg, "rb") as f:
-                    hdr = f.read(8)
-                    if len(hdr) == 8:
-                        total_rows += int(struct.unpack("<Q", hdr)[0])
+                    hdr = f.read(MmapHeaderConstract.WRITE_COUNT_STRUCT.size)
+                    if len(hdr) == MmapHeaderConstract.WRITE_COUNT_STRUCT.size:
+                        total_rows += int(MmapHeaderConstract.WRITE_COUNT_STRUCT.unpack(hdr)[0])
             n_samples = total_rows * 20
             data_mm_tmp.close()
     except Exception:
@@ -107,10 +108,20 @@ def decode_one_file(
             try:
                 seg_size = int(seg.stat().st_size)
                 with open(seg, "rb") as f:
-                    hdr = f.read(16)
-                if len(hdr) == 16:
-                    write_count = int(struct.unpack_from("<Q", hdr, 0)[0])
-                    status = int(struct.unpack_from("<I", hdr, 12)[0])
+                    hdr = f.read(MmapHeaderConstract.SIZE)
+                if len(hdr) >= MmapHeaderConstract.STATUS_OFFSET + MmapHeaderConstract.STATUS_STRUCT.size:
+                    write_count = int(
+                        MmapHeaderConstract.WRITE_COUNT_STRUCT.unpack_from(
+                            hdr,
+                            MmapHeaderConstract.WRITE_COUNT_OFFSET,
+                        )[0]
+                    )
+                    status = int(
+                        MmapHeaderConstract.STATUS_STRUCT.unpack_from(
+                            hdr,
+                            MmapHeaderConstract.STATUS_OFFSET,
+                        )[0]
+                    )
             except Exception:
                 pass
             LOG.error(

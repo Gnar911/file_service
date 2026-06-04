@@ -9,7 +9,7 @@ from lw.singleton import SingletonMeta
 from .file_service import FileService as _FileServiceImpl
 from .repository.record import Record
 from .record_id import RecordId
-
+from can_sdk.data_object import CANLogLine
 
 class FileService:
     def __init__(self, service: _FileServiceImpl):
@@ -26,6 +26,12 @@ class FileService:
         return self._service.state
 
 ###################### Log file parse, decode API ###########################
+    def parse_line(self, text_l: str) -> CANLogLine:
+        return self._service.parse_line(text_l)
+
+    def parse_lines(self, text_l: str) -> list[CANLogLine]:
+        return self._service.parse_lines(text_l)
+
     def parse_log(self, file_path: str, record_id: RecordId | None = None,) -> bool:
         return self._service.parse_log_file(file_path, record_id=record_id,)
 

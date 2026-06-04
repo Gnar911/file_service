@@ -2,50 +2,41 @@ from __future__ import annotations
 
 import json
 import mmap as _mmap
-import tempfile
+import struct
 from pathlib import Path
-from typing import Any
 
 from lw.logger_setup import LOG
 from lw.shm_ring import BATCH_SIZE, ENTRY_SIZE
 
+from file_service.parser.native.can_parser_api import MmapHeaderConstract
+from file_service.recorder.status import (
+    RECORDER_STATUS_IDLE,
+    RECORDER_STATUS_WRITE,
+)
+
 
 _PREALLOC_BYTES = BATCH_SIZE * ENTRY_SIZE * 1024
-
-
-def recorder_staging_path() -> Path:
-	tmp_dir = Path(tempfile.gettempdir()) / "cbcm_recorder"
-	tmp_dir.mkdir(parents=True, exist_ok=True)
-	return tmp_dir / "can_service.writer.ring.bin"
-
-
-def recorder_staging_state_path() -> Path:
-    tmp_dir = Path(tempfile.gettempdir()) / "cbcm_recorder"
-    tmp_dir.mkdir(parents=True, exist_ok=True)
-    return tmp_dir / "can_service.writer.ring.state.json"
-
-
-def recorder_staging_bytes_written() -> int:
-    state_path = recorder_staging_state_path()
-    try:
-        state = json.loads(state_path.read_text(encoding="utf-8"))
-        return max(0, int(state.get("bytes_written", 0) or 0))
-    except Exception:
-        return 0
+_HEADER_WRITE_COUNT_OFFSET = MmapHeaderConstract.WRITE_COUNT_OFFSET
+_HEADER_CAPACITY_OFFSET = MmapHeaderConstract.CAPACITY_OFFSET
+_HEADER_STATUS_OFFSET = MmapHeaderConstract.STATUS_OFFSET
+_HEADER_SIZE = MmapHeaderConstract.SIZE
 
 
 class MmapBatchWriter:
-    def __init__(self):
-        self._out = recorder_staging_path()
-        self._state_path = recorder_staging_state_path()
+    def __init__(self, output_mmap_path: str | Path):
+        self._out = Path(output_mmap_path)
+        self._state_path = self._out.parent / f"{self._out.name}.state.json"
         self._out.parent.mkdir(parents=True, exist_ok=True)
         self._file = open(self._out, "w+b")
-        self._file.truncate(_PREALLOC_BYTES)
-        self._mmap = _mmap.mmap(self._file.fileno(), _PREALLOC_BYTES, access=_mmap.ACCESS_WRITE)
-        self._file_size = _PREALLOC_BYTES
-        self._file_off = 0
+        self._file.truncate(_HEADER_SIZE + _PREALLOC_BYTES)
+        self._mmap = _mmap.mmap(self._file.fileno(), _HEADER_SIZE + _PREALLOC_BYTES, access=_mmap.ACCESS_WRITE)
+        self._file_size = _HEADER_SIZE + _PREALLOC_BYTES
+        self._file_off = _HEADER_SIZE
         self._frames_written = 0
         self._batch_write_count = 0
+        self._set_capacity(max(0, _PREALLOC_BYTES // ENTRY_SIZE))
+        self.set_status(int(RECORDER_STATUS_IDLE))
+        self._set_frame_count(0)
         self._write_state_file()
 
     @property
@@ -54,7 +45,20 @@ class MmapBatchWriter:
 
     @property
     def bytes_written(self) -> int:
+        return int(max(0, self._file_off - _HEADER_SIZE))
+
+    @property
+    def total_bytes_written(self) -> int:
         return int(self._file_off)
+
+    def set_status(self, status: int) -> None:
+        struct.pack_into("<I", self._mmap, _HEADER_STATUS_OFFSET, int(status))
+
+    def _set_capacity(self, capacity: int) -> None:
+        struct.pack_into("<I", self._mmap, _HEADER_CAPACITY_OFFSET, int(capacity))
+
+    def _set_frame_count(self, frame_count: int) -> None:
+        struct.pack_into("<Q", self._mmap, _HEADER_WRITE_COUNT_OFFSET, int(frame_count))
 
     def write(self, batch: bytearray, frame_count: int) -> None:
         if frame_count <= 0 or not batch:
@@ -70,6 +74,8 @@ class MmapBatchWriter:
         self._file_off += len(batch)
         self._frames_written += int(frame_count)
         self._batch_write_count += 1
+        self._set_frame_count(self._frames_written)
+        self.set_status(int(RECORDER_STATUS_WRITE))
         LOG.info(
             "[RECORDER][MMAP] batch_written batch_no=%d frame_count=%d frames_written=%d bytes_written=%d",
             int(self._batch_write_count),
@@ -95,7 +101,8 @@ class MmapBatchWriter:
         state_path_tmp = self._state_path.with_suffix(".tmp")
         payload = {
             "frames_written": int(self._frames_written),
-            "bytes_written": int(self._file_off),
+            "bytes_written": int(self.bytes_written),
+            "total_bytes": int(self._file_off),
             "batch_write_count": int(self._batch_write_count),
         }
         try:
@@ -103,11 +110,3 @@ class MmapBatchWriter:
             state_path_tmp.replace(self._state_path)
         except Exception:
             LOG.exception("[RECORDER][MMAP] failed to update staging state")
-
-
-__all__ = [
-	"MmapBatchWriter",
-	"recorder_staging_bytes_written",
-	"recorder_staging_path",
-	"recorder_staging_state_path",
-]

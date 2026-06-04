@@ -14,14 +14,15 @@ from file_service.dispatcher.application_events import (
     DecoderStatusEvent,
     FileServiceStateEvent,
     ParserStatusEvent,
+    RecorderStatusEvent,
 )
-from file_service.decode.decode_process import get_status as get_decode_status
 from file_service.decode.decode_process import run_decode_async
 from file_service.decode.dbc_manager import CANDBManager
 from file_service.dispatcher.event_dispatcher import FileServiceDispatcher
 from file_service.exporter.can_log_export import CANLogExport
-from file_service.parser.parser_process import get_status as get_parser_status
 from file_service.parser.parser_process import run_parser_async
+from file_service.parser.python.py_parser import LogParser
+from file_service.recorder.status import RECORDER_STATUS_IDLE, RECORDER_STATUS_STOP, RECORDER_STATUS_WRITE
 from file_service.repository.record import Record
 from file_service.record_id import RecordId
 from file_service.recorder.mmap_recorder import writer_process
@@ -31,7 +32,9 @@ from lw.base_service import BaseService, ServiceState
 from lw.define import CAN_SHARED_RING_SHM_NAME
 from lw.logger_setup import LOG
 from can_sdk.data_object import CANDBInfo
-from native_sdk.can_parser_api import (  # type: ignore[import-not-found]
+from can_sdk.data_object import CANLogLine
+from file_service.decode.native.can_decoder_api import DECODE_STATUS_DONE, DECODE_STATUS_ERROR, DECODE_STATUS_RUNNING
+from file_service.parser.native.can_parser_api import (
     DATA_STATUS_DONE,
     DATA_STATUS_ERROR,
     DATA_STATUS_RUNNING,
@@ -43,6 +46,10 @@ class FileService(BaseService):
         super().__init__(service_name="FileService")
 
         self._recorder_stop = mp.Event()
+        self._recorder_proc: mp.Process | None = None
+        self._recorder_last_status: int | None = None
+        self._active_recording_record_id: RecordId | None = None
+        self._active_recording_mmap_path: str | None = None
         self._worker_alive: dict[str, bool] = {}
         self._active_parse_record_id: RecordId | None = None
         self._active_decode_record_id: RecordId | None = None
@@ -116,19 +123,46 @@ class FileService(BaseService):
 
     def start_recording(self) -> bool:
         self._require_running()
+        if self._recorder_proc is not None and self._recorder_proc.is_alive():
+            return False
+
+        record_id = self._log_repository.create_record()
+        record = self._log_repository.get_record(record_id)
+        if record is None:
+            return False
+        recorder_mmap_path = str(record.raw.data_mmap_path)
+
+        wakeup = self._dispatcher.create_worker_wakeup()
+        self._dispatcher.register_decoder_worker(
+            file_path="recorder",
+            wakeup=wakeup,
+            callback=lambda: self.on_recorder_callback(),
+        )
+
+        self._recorder_last_status = None
+        self._active_recording_record_id = record_id
+        self._active_recording_mmap_path = recorder_mmap_path
         self._recorder_stop.clear()
-        self._spawn_process(
+        self._recorder_proc = self._spawn_process(
             "recorder",
             writer_process,
             args=(
                 str(CAN_SHARED_RING_SHM_NAME),
+                recorder_mmap_path,
                 self._recorder_stop,
+                wakeup,
             ),
         )
         return True
 
     def stop_recording(self) -> None:
         self._recorder_stop.set()
+        if self._recorder_proc is not None:
+            self._recorder_proc.join(timeout=1.0)
+            alive = bool(self._recorder_proc.is_alive())
+            self._worker_alive["recorder"] = alive
+            if not alive:
+                self._recorder_proc = None
 
     def save_record(self, record_id: RecordId) -> bool:
         return self._log_repository.save_record(record_id)
@@ -161,6 +195,24 @@ class FileService(BaseService):
         if self._log_verification.verify_log_file(normalized):
             return self._start_parse_job(normalized, record_id)
         return False
+
+    def parse_line(self, text_l: str) -> CANLogLine:
+        parser = LogParser()
+        parsed = parser._various_parse_line_test(str(text_l or ""), 1)
+        if parsed is None:
+            raise ValueError("Failed to parse CAN log line")
+        return parsed
+
+    def parse_lines(self, text_l: str) -> list[CANLogLine]:
+        parser = LogParser()
+        parsed_lines: list[CANLogLine] = []
+        for line_number, line in enumerate(str(text_l or "").splitlines(), start=1):
+            if not line.strip():
+                continue
+            parsed = parser._various_parse_line_test(line, line_number)
+            if parsed is not None:
+                parsed_lines.append(parsed)
+        return parsed_lines
 
     def parse_dbc_file(self, db_file_path: str, record_id: RecordId | None = None) -> bool:
         self._require_running()
@@ -298,7 +350,7 @@ class FileService(BaseService):
         self._worker_alive["decoder"] = bool(proc.is_alive())
         return self._worker_alive["decoder"]
 
-    def _spawn_process(self, name: str, target, args: tuple[Any, ...], kwargs: dict[str, Any] | None = None) -> None:
+    def _spawn_process(self, name: str, target, args: tuple[Any, ...], kwargs: dict[str, Any] | None = None) -> mp.Process:
         proc = mp.Process(
             target=target,
             args=args,
@@ -308,6 +360,48 @@ class FileService(BaseService):
         )
         proc.start()
         self._worker_alive[name] = bool(proc.is_alive())
+        return proc
+
+    def on_recorder_callback(self) -> bool:
+        recorder_mmap_path = self._active_recording_mmap_path
+        record = (
+            self._log_repository.get_record(self._active_recording_record_id)
+            if self._active_recording_record_id is not None
+            else None
+        )
+        recorder_status = int(record.get_status()) if record is not None else -1
+        if recorder_status in (int(RECORDER_STATUS_IDLE), int(RECORDER_STATUS_WRITE)):
+            status = int(DATA_STATUS_RUNNING)
+        elif recorder_status == int(RECORDER_STATUS_STOP):
+            status = int(DATA_STATUS_DONE)
+        else:
+            status = int(DATA_STATUS_ERROR)
+        if status != self._recorder_last_status:
+            self._recorder_last_status = status
+            status_name = {
+                int(DATA_STATUS_RUNNING): "RUNNING",
+                int(DATA_STATUS_DONE): "DONE",
+                int(DATA_STATUS_ERROR): "ERROR",
+            }.get(int(status), "UNKNOWN")
+            self._dispatcher.dispatch_event(
+                RecorderStatusEvent(
+                    status=status_name,
+                    payload={
+                        "status": int(status),
+                        "record_id": self._active_recording_record_id,
+                        "mmap_path": recorder_mmap_path,
+                    },
+                )
+            )
+
+        alive = bool(self._recorder_proc is not None and self._recorder_proc.is_alive())
+        if not alive and status == int(DATA_STATUS_DONE):
+            self._worker_alive["recorder"] = False
+            self._recorder_proc = None
+            self._active_recording_record_id = None
+            self._active_recording_mmap_path = None
+            return True
+        return False
 
     def on_parser_callback(self) -> int:
         record_id = self._active_parse_record_id
@@ -315,7 +409,7 @@ class FileService(BaseService):
         record = self._log_repository.get_record(record_id) if record_id is not None else None
 
         if record_id is not None:
-            status = int(get_parser_status(record_id, record))
+            status = int(record.get_data_status()) if record is not None else int(DATA_STATUS_ERROR)
 
         if status == DATA_STATUS_DONE and record_id is not None:
             if record is not None:
@@ -356,7 +450,15 @@ class FileService(BaseService):
 
         status = int(DATA_STATUS_ERROR)
         record = self._log_repository.get_record(record_id)
-        status = int(get_decode_status(record_id, record))
+        decode_status = int(record.get_decode_status()) if record is not None else -1
+        if decode_status == int(DECODE_STATUS_DONE):
+            status = int(DATA_STATUS_DONE)
+        elif decode_status == int(DECODE_STATUS_RUNNING):
+            status = int(DATA_STATUS_RUNNING)
+        elif decode_status == int(DECODE_STATUS_ERROR):
+            status = int(DATA_STATUS_ERROR)
+        else:
+            status = int(DATA_STATUS_ERROR)
 
         if status != DATA_STATUS_DONE:
             self._log_repository.mark_failed(record_id)
@@ -371,7 +473,7 @@ class FileService(BaseService):
                         "file_path": file_path,
                         "db_file_path": db_file_path,
                         "reason": "decode_status_error",
-                        "decode_status": status,
+                        "decode_status": decode_status,
                     },
                 )
             )
@@ -383,7 +485,7 @@ class FileService(BaseService):
                         "file_path": file_path,
                         "db_file_path": db_file_path,
                         "reason": "decode_status_error",
-                        "decode_status": status,
+                        "decode_status": decode_status,
                     },
                 )
             )
@@ -407,7 +509,7 @@ class FileService(BaseService):
                     "status": DATA_STATUS_DONE,
                     "file_path": file_path,
                     "db_file_path": db_file_path,
-                    "decode_status": status,
+                    "decode_status": decode_status,
                 },
             )
         )

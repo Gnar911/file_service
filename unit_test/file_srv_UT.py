@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from multiprocessing import shared_memory
+import struct
 import threading
 import time
 
@@ -12,16 +14,18 @@ from file_service.dispatcher.application_events import (
     DecodeCompletedEvent,
     FileServiceStateEvent,
     ParserStatusEvent,
+    RecorderStatusEvent,
 )
 from file_service.record_id import RecordId
 from file_service.srv_if import FileService, get_file_service
 from lw.base_service import ServiceState
-from native_sdk.can_parser_api import DATA_STATUS_DONE
+from lw.define import CAN_SHARED_RING_SHM_NAME
+from lw.shm_ring import ENTRY_SIZE
+from file_service.parser.native.can_parser_api import DATA_STATUS_DONE
 
 TIMEOUT = 0.8
 PARSE_TIMEOUT = 15.0
 POLL_INTERVAL = 0.1
-
 
 @pytest.mark.dependency(name="service_started")
 def test_01_start_service() -> None:
@@ -601,7 +605,6 @@ def test_16_parse_dbc_then_parse_log(file_path: str, db_file_path: str) -> None:
     print("test_16 parse_mmap:", record.get_runtime_mmap_paths())
     print("test_16 dbc_pkl_path:", record.get_dbc_pkl_path())
 
-
 @pytest.mark.dependency(name="service_stopped", depends=["decode", "dbc_then_parse_16"])
 def test_14_stop_service() -> None:
     """Stop FileService and wait until it publishes STOPPED."""
@@ -652,3 +655,59 @@ def test_17_start_service_twice_only_start_once() -> None:
     file_srv.stop()
     assert stop_event.wait(timeout=TIMEOUT)
     assert file_srv.get_service_state() == ServiceState.STOPPED
+
+
+@pytest.mark.parametrize(
+    "text_line, expected_can_id, expected_channel_idx, expected_data_len, expected_raw_data",
+    [
+        ("0.000001 1 123 Tx d 8 01 02 03 04 05 06 07 08", 0x123, 1, 8, "01 02 03 04 05 06 07 08"),
+        ("1.250000 7 1A5 Rx d 4 AA BB CC DD", 0x1A5, 7, 4, "AA BB CC DD"),
+        "2132132 CANFD   1 Rx        417                                   1 0 8 8  14 3C 40 00 00 00 09 BC",
+        "2132133 CANFD   1 Rx        48E                                   1 0 8 8  40 92 49 60 80 4D 00 00",
+        "2132132 CANFD   1 Rx        100                                   1 0 8 8  14 3C 40 00 00 00 10 BC",
+        "2132135 CANFD   1 Rx         84                                   1 0 8 8  3F 85 3E 76 81 02 2F 3F",
+        "2132137 CANFD   1 Rx        41E                                   1 0 8 8  40 92 14 60 80 4D 00 00",
+        "2132138 CANFD   1 Rx        38E                                   1 0 8 8  40 80 49 60 80 4D 00 00",
+        "2132139 CANFD   1 Rx        18E                                   1 0 8 8  40 92 49 10 80 4D 00 00",
+    ],
+)
+def test_40_parse_line(
+    text_line: str,
+    expected_can_id: int,
+    expected_channel_idx: int,
+    expected_data_len: int,
+    expected_raw_data: str,
+) -> None:
+    file_srv = get_file_service()
+
+    parsed = file_srv.parse_line(text_line)
+
+    assert parsed.can_id == expected_can_id
+    assert parsed.channel_idx == expected_channel_idx
+    assert parsed.data_len == expected_data_len
+    assert parsed.raw_data == expected_raw_data
+
+
+@pytest.mark.parametrize(
+    "text_lines, expected_count, expected_ids",
+    [
+        (
+            "0.000001 1 123 Tx d 8 01 02 03 04 05 06 07 08\n1.250000 7 1A5 Rx d 4 AA BB CC DD",
+            2,
+            [0x123, 0x1A5],
+        ),
+        (
+            "0.000001 1 123 Tx d 8 01 02 03 04 05 06 07 08\n\n1.250000 7 1A5 Rx d 4 AA BB CC DD\n",
+            2,
+            [0x123, 0x1A5],
+        ),
+    ],
+)
+def test_41_parse_lines(text_lines: str, expected_count: int, expected_ids: list[int]) -> None:
+    file_srv = get_file_service()
+
+    parsed_lines = file_srv.parse_lines(text_lines)
+
+    assert len(parsed_lines) == expected_count
+    assert [item.can_id for item in parsed_lines] == expected_ids
+    assert [item.line_number for item in parsed_lines] == [1, 2]

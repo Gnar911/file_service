@@ -18,9 +18,10 @@ from .application_events import (
     FileWorkerHealthEvent,
     FileWorkerRawStatusEvent,
     ParserStatusEvent,
+    RecorderStatusEvent,
 )
 
-from native_sdk.can_parser_api import (  # type: ignore[import-not-found]
+from file_service.parser.native.can_parser_api import (
     DATA_STATUS_DONE,
     DATA_STATUS_ERROR,
     DATA_STATUS_RUNNING,
@@ -64,6 +65,7 @@ class FileServiceDispatcher:
         self.event_on_dbc_loaded = ObservableEvent(DBCLoadedEvent)
         self.event_on_worker_health_changed = ObservableEvent(FileWorkerHealthEvent)
         self.event_on_worker_raw_status_changed = ObservableEvent(FileWorkerRawStatusEvent)
+        self.event_on_recorder_status_changed = ObservableEvent(RecorderStatusEvent)
 
         self._event_channels: dict[type[Any], ObservableEvent] = {
             FileServiceStateEvent: 
@@ -90,6 +92,8 @@ class FileServiceDispatcher:
             self.event_on_worker_health_changed,
             FileWorkerRawStatusEvent: 
             self.event_on_worker_raw_status_changed,
+            RecorderStatusEvent:
+            self.event_on_recorder_status_changed,
         }
 
         self._workers: dict[

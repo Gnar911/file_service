@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from file_service.define import MMAP_TEMP_STORAGE_DIR
+from file_service.parser.native.can_parser_api import MmapHeaderConstract
 from file_service.record_id import RecordId
 from file_service.repository.record import Record
 
@@ -88,7 +89,7 @@ class RecordRepository:
 
     def resolve_file_path(self, record_id: RecordId) -> str:
         record = self.get_record(record_id)
-        return record.file_path if record is not None else ""
+        return str(record.get_base_path()) if record is not None else ""
 
     def has_runtime_mmaps(self, record_id: RecordId) -> bool:
         record = self.get_record(record_id)

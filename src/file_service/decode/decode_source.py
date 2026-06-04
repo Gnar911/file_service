@@ -3,7 +3,7 @@ from __future__ import annotations
 import pickle
 from pathlib import Path
 from lw.logger_setup import LOG
-from native_sdk.can_decoder_api import DecodeDB
+from file_service.decode.native.can_decoder_api import DecodeDB
 
 from file_service.decode.dbc_manager import CANDBManager
 from file_service.decode.native.native_decoder import decode_one_file

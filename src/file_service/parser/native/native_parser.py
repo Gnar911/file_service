@@ -1,6 +1,6 @@
-from native_sdk.can_parser_api import CanParserLib as _CanParserLib  # type: ignore[import-not-found]
-from native_sdk.can_parser_api import DATA_STATUS_ERROR  # type: ignore[import-not-found]
-from native_sdk.can_parser_api import MmapData  # type: ignore[import-not-found]
+from file_service.parser.native.can_parser_api import CanParserLib as _CanParserLib
+from file_service.parser.native.can_parser_api import DATA_STATUS_ERROR
+from file_service.parser.native.can_parser_api import MmapData
 from lw.logger_setup import LOG
 
 ### RUN on child process, binding class for native C++ parser

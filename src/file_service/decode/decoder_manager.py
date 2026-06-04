@@ -14,12 +14,12 @@ from lw.logger_setup import LOG
 from lw.observer import ObservableEvent
 from can_sdk.dbc_manager import CANDBInfo
 from can_sdk.data_object import SignalFilter, CANLogDecodedDiskFile, CANLogRawDiskFile
-from native_sdk.can_decoder_api import (
+from file_service.decode.native.can_decoder_api import (
     DecodeDB,
     RowIndexMmap, ValueMmap, RawValueMmap,
     CanDecoderLib, estimate_sample_count,
 )
-from native_sdk.can_parser_api import MmapData, IndexMmapData
+from file_service.parser.native.can_parser_api import MmapData, IndexMmapData
 
 MMAP_DUMP_PATH = MMAP_DIR
 _DBC_PKL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dumps", "dbc_pkl")

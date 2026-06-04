@@ -2,18 +2,24 @@ from __future__ import annotations
 
 from pathlib import Path
 import shutil
-from typing import Any
+from typing import Any, List, Optional, Tuple
 
-from file_service.define import MMAP_LOCAL_STORAGE_DIR
+from can_sdk.data_object import CANLogLine
+from file_service.define import MMAP_LOCAL_STORAGE_DIR, MMAP_TEMP_STORAGE_DIR
 from file_service.repository.file_handler.data_mmap_handler import CANLogRawDiskFile
 from file_service.repository.file_handler.decode_mmap_handler import CANLogDecodedDiskFile
 from file_service.repository.file_handler.dbc_pkl_handler import DBCPklHandler
 from lw.logger_setup import LOG
+from file_service.parser.native.can_parser_api import MmapHeaderConstract
 
 from file_service.record_id import RecordId
 
 
 class Record:
+    _MAIN_STATUS_OFFSET = MmapHeaderConstract.STATUS_OFFSET
+    _MAIN_PROGRESS_OFFSET = MmapHeaderConstract.WRITE_COUNT_OFFSET
+    _DATA_STATUS_OFFSET = MmapHeaderConstract.STATUS_OFFSET
+
     def __init__(self, record_id: RecordId, base_dir: str | Path, base_name: str):
         if not str(base_dir):
             raise ValueError("base_dir is required")
@@ -42,9 +48,54 @@ class Record:
     def get_base_path(self) -> Path:
         return Path(self.data_handler.mmap_dir) / self.data_handler.mmap_name
 
+    @classmethod
+    def open_runtime_record(cls, record_id: RecordId) -> Record:
+        token = record_id.path_token()
+        for base_dir in (MMAP_LOCAL_STORAGE_DIR / token, MMAP_TEMP_STORAGE_DIR):
+            record = cls(record_id=record_id, base_dir=base_dir, base_name=token)
+            record.refresh_runtime()
+            if record.has_runtime_mmaps():
+                return record
+        raise ValueError(f"Record has no runtime mmaps: {record_id}")
+
     def get_dbc_pkl_path(self) -> Path:
         base_path = self.get_base_path()
         return base_path.parent / f"{base_path.name}.pkl"
+
+    # Replay-facing accessors so callers do not touch data_handler directly.
+    def get_total_lines(self) -> int:
+        self.refresh_runtime()
+        return int(self.data_handler.total_lines)
+
+    def get_page_from_row_indices(self, first_line: int, page_size: int) -> List[CANLogLine]:
+        return self.data_handler.get_page_from_row_indices(first_line, page_size)
+
+    def get_page_from_can_id_row_indices(self, can_id: int, first_line: int, page_size: int) -> List[CANLogLine]:
+        return self.data_handler.get_page_from_can_id_row_indices(int(can_id), first_line, page_size)
+
+    def get_page_from_can_ids_row_indices(self, can_ids: List[int], first_line: int, page_size: int) -> List[CANLogLine]:
+        return self.data_handler.get_page_from_can_ids_row_indices([int(cid) for cid in can_ids], first_line, page_size)
+
+    def get_total_count_by_can_ids(self, can_ids: List[int]) -> int:
+        return int(self.data_handler.get_total_count_by_can_ids([int(cid) for cid in can_ids]))
+
+    def get_first_last_timestamp(self) -> Tuple[Optional[float], Optional[float]]:
+        return self.data_handler.get_first_last_timestamp()
+
+    def get_first_last_timestamp_by_can_ids(self, can_ids: List[int]) -> Tuple[Optional[float], Optional[float]]:
+        return self.data_handler.get_first_last_timestamp_by_can_ids([int(cid) for cid in can_ids])
+
+    def get_start_row_by_timestamp(self, timestamp: float) -> int:
+        return int(self.data_handler.get_start_row_by_timestamp(float(timestamp)))
+
+    def get_end_row_by_timestamp(self, timestamp: float) -> int:
+        return int(self.data_handler.get_end_row_by_timestamp(float(timestamp)))
+
+    def get_start_row_by_can_id_timestamp(self, can_id: int, timestamp: float) -> int:
+        return int(self.data_handler.get_start_row_by_can_id_timestamp(int(can_id), float(timestamp)))
+
+    def get_end_row_by_can_id_timestamp(self, can_id: int, timestamp: float) -> int:
+        return int(self.data_handler.get_end_row_by_can_id_timestamp(int(can_id), float(timestamp)))
 
     @staticmethod
     def _normalize_path_token(value: str) -> str:
@@ -132,6 +183,62 @@ class Record:
             "channel_index": self.data_handler.channel_index_segment_paths(),
             "direction_index": self.data_handler.direction_index_segment_paths(),
         }
+
+    def _status_path(self) -> Path:
+        data_paths = self.data_handler.data_segment_paths()
+        return data_paths[0] if data_paths else Path(self.data_handler.data_mmap_path)
+
+    def _decode_status_path(self) -> Path | None:
+        row_index_paths = self.get_decode_mmap_paths().get("row_index", [])
+        return row_index_paths[0] if row_index_paths else None
+
+    @staticmethod
+    def _read_u32(path: Path, offset: int, default: int = -1) -> int:
+        if not path.exists():
+            return int(default)
+        try:
+            with open(path, "rb") as file_obj:
+                file_obj.seek(int(offset))
+                raw = file_obj.read(MmapHeaderConstract.STATUS_STRUCT.size)
+                if len(raw) < MmapHeaderConstract.STATUS_STRUCT.size:
+                    return int(default)
+                return int(MmapHeaderConstract.STATUS_STRUCT.unpack(raw)[0])
+        except Exception:
+            return int(default)
+
+    @staticmethod
+    def _read_u64(path: Path, offset: int, default: int = 0) -> int:
+        if not path.exists():
+            return int(default)
+        try:
+            with open(path, "rb") as file_obj:
+                file_obj.seek(int(offset))
+                raw = file_obj.read(MmapHeaderConstract.WRITE_COUNT_STRUCT.size)
+                if len(raw) < MmapHeaderConstract.WRITE_COUNT_STRUCT.size:
+                    return int(default)
+                return int(MmapHeaderConstract.WRITE_COUNT_STRUCT.unpack(raw)[0])
+        except Exception:
+            return int(default)
+
+    def get_status(self) -> int:
+        self.refresh_runtime()
+        return self._read_u32(self._status_path(), self._MAIN_STATUS_OFFSET, default=-1)
+
+    def get_data_status(self) -> int:
+        self.refresh_runtime()
+        return self._read_u32(self._status_path(), self._DATA_STATUS_OFFSET, default=-1)
+
+    def get_decode_status(self) -> int:
+        self.refresh_runtime()
+        decode_path = self._decode_status_path()
+        if decode_path is None:
+            return -1
+        return self._read_u32(decode_path, self._DATA_STATUS_OFFSET, default=-1)
+
+    def get_progress_index(self) -> int:
+        self.refresh_runtime()
+        progress = self._read_u64(self._status_path(), self._MAIN_PROGRESS_OFFSET, default=0)
+        return max(0, int(progress))
 
     def get_decode_mmap_paths(self) -> dict[str, list[Path]]:
         if not self.has_decode_mmaps():
@@ -248,6 +355,7 @@ class Record:
         return self.data_handler
 
     def get_metadata(self, db_file_path: str | None = None) -> dict[str, Any]:
+        self.refresh_runtime()
         raw = self.data_handler
         metadata: dict[str, Any] = {
             "record_id": self.record_id,
@@ -255,6 +363,10 @@ class Record:
             "raw_state": getattr(raw, "state", None),
             "raw_is_loading": bool(getattr(raw, "is_loading", False)),
             "total_lines": int(raw.total_lines),
+            "row_size": self.get_total_lines(),
+            "can_ids": [int(cid) for cid in self.data_handler.get_all_can_ids()],
+            "channels": [str(ch) for ch in self.data_handler.get_all_channels()],
+            "time_range": self.data_handler.get_first_last_timestamp(),
             "verified_size": int(raw.verified_size),
             "mmap_file_count": int(raw.mmap_file_count),
             "decoded_db_file_paths": [],

@@ -97,3 +97,9 @@ class FileWorkerHealthEvent(FileDomainEvent):
 class FileWorkerRawStatusEvent(FileDomainEvent):
     worker: str = ""
     raw: Any = None
+
+
+@dataclass(slots=True)
+class RecorderStatusEvent(FileDomainEvent):
+    status: str = ""
+    payload: dict[str, Any] = field(default_factory=dict)

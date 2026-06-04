@@ -27,6 +27,10 @@ class SharedMemoryRingReader:
         return int(self._read_idx)
 
     @property
+    def write_idx(self) -> int:
+        return int(self._write_idx())
+
+    @property
     def available(self) -> int:
         return self._write_idx() - int(self._read_idx)
 

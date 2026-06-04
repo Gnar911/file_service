@@ -160,7 +160,18 @@ class CANLogRawDiskFile:
         stem_parts = stem.rsplit(".", 1)
         if len(stem_parts) == 2 and stem_parts[1].isdigit() and len(stem_parts[1]) == 3:
             stem = stem_parts[0]
-        return sorted(folder.glob(f"{stem}.[0-9][0-9][0-9].mmap"))
+        segments = sorted(folder.glob(f"{stem}.[0-9][0-9][0-9].mmap"))
+        if base.exists():
+            segments.insert(0, base)
+
+        dedup: list[Path] = []
+        seen: set[Path] = set()
+        for path in segments:
+            if path in seen:
+                continue
+            seen.add(path)
+            dedup.append(path)
+        return dedup
     
     # ────────────────────────────────────────────────────────────────────
     #  API for filter rows
