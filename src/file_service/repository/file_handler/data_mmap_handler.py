@@ -1,14 +1,12 @@
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Callable, Any, Tuple, Set
 from collections import defaultdict
-from enum import Enum
 from pathlib import Path
 import mmap as _mmap
 import struct
 import heapq
-import cantools
 from lw.logger_setup import LOG
-from can_sdk.data_object import CANLogLine
+from file_service.parser.native.can_parser_api import MmapHeaderConstract, ParsedEntry, ParsedEntryLayout, IndexMmapLayout
 
 # .data.mmap
 # .index.mmap
@@ -24,18 +22,55 @@ class CANLogRawDiskFile:
     can_ids: List[int] = field(default_factory=list)
     channels: List[str] = field(default_factory=list)
 
-    _ENTRY_SIZE: int = 107
-    _DATA_HEADER_SIZE: int = 32
-    _ENTRY_STRUCT: Any = field(default=struct.Struct("<IddIBBB64s16s"), init=False, repr=False)
-    _INDEX_HEADER_SIZE: int = 40
-    _INDEX_HDR_STRUCT: Any = field(default=struct.Struct("<IIIIIIIII4x"), init=False, repr=False)
-    _INDEX_FILTER_STRUCT: Any = field(default=struct.Struct("<IQQQII"), init=False, repr=False)
-    _CHANNEL_INDEX_HEADER_SIZE: int = 32
-    _CHANNEL_INDEX_HDR_STRUCT: Any = field(default=struct.Struct("<IIIII12x"), init=False, repr=False)
-    _CHANNEL_FILTER_STRUCT: Any = field(default=struct.Struct("<B15sQII"), init=False, repr=False)
-    _DIRECTION_INDEX_HEADER_SIZE: int = 32
-    _DIRECTION_INDEX_HDR_STRUCT: Any = field(default=struct.Struct("<IIIII12x"), init=False, repr=False)
-    _DIRECTION_FILTER_STRUCT: Any = field(default=struct.Struct("<B7xQII"), init=False, repr=False)
+    _ENTRY_SIZE: int = field(default=ParsedEntryLayout.ENTRY_SIZE, init=False, repr=False)
+    _DATA_HEADER_SIZE: int = field(default=MmapHeaderConstract.SIZE, init=False, repr=False)
+    _ENTRY_LINE_NUMBER_OFFSET: int = field(default=ParsedEntryLayout.LINE_NUMBER_OFFSET, init=False, repr=False)
+    _ENTRY_TIMESTAMP_OFFSET: int = field(default=ParsedEntryLayout.TIMESTAMP_OFFSET, init=False, repr=False)
+    _ENTRY_LAST_TIMESTAMP_OFFSET: int = field(default=ParsedEntryLayout.LAST_TIMESTAMP_OFFSET, init=False, repr=False)
+    _ENTRY_CAN_ID_OFFSET: int = field(default=ParsedEntryLayout.CAN_ID_OFFSET, init=False, repr=False)
+    _ENTRY_DIRECTION_OFFSET: int = field(default=ParsedEntryLayout.DIRECTION_OFFSET, init=False, repr=False)
+    _ENTRY_DATA_LEN_OFFSET: int = field(default=ParsedEntryLayout.DATA_LEN_OFFSET, init=False, repr=False)
+    _ENTRY_CHANGED_OFFSET: int = field(default=ParsedEntryLayout.CHANGED_OFFSET, init=False, repr=False)
+    _ENTRY_DATA_OFFSET: int = field(default=ParsedEntryLayout.DATA_OFFSET, init=False, repr=False)
+    _ENTRY_DATA_CAPACITY: int = field(default=ParsedEntryLayout.DATA_CAPACITY, init=False, repr=False)
+    _ENTRY_CHANNEL_OFFSET: int = field(default=ParsedEntryLayout.CHANNEL_OFFSET, init=False, repr=False)
+    _ENTRY_CHANNEL_CAPACITY: int = field(default=ParsedEntryLayout.CHANNEL_CAPACITY, init=False, repr=False)
+    _INDEX_HEADER_SIZE: int = field(default=IndexMmapLayout.INDEX_HEADER_SIZE, init=False, repr=False)
+    _INDEX_CAN_ID_COUNT_OFFSET: int = field(default=IndexMmapLayout.INDEX_HEADER_CAN_ID_COUNT_OFFSET, init=False, repr=False)
+    _INDEX_MAX_CAN_IDS_OFFSET: int = field(default=IndexMmapLayout.INDEX_HEADER_MAX_CAN_IDS_OFFSET, init=False, repr=False)
+    _INDEX_MAX_ROW_POOL_SIZE_OFFSET: int = field(default=IndexMmapLayout.INDEX_HEADER_MAX_ROW_POOL_SIZE_OFFSET, init=False, repr=False)
+    _INDEX_MAX_CHANGED_ROW_POOL_SIZE_OFFSET: int = field(default=IndexMmapLayout.INDEX_HEADER_MAX_CHANGED_ROW_POOL_SIZE_OFFSET, init=False, repr=False)
+    _INDEX_MAX_TS_POOL_SIZE_OFFSET: int = field(default=IndexMmapLayout.INDEX_HEADER_MAX_TS_POOL_SIZE_OFFSET, init=False, repr=False)
+
+    _INDEX_FILTER_SIZE: int = field(default=IndexMmapLayout.CAN_ID_FILTER_SIZE, init=False, repr=False)
+    _INDEX_FILTER_CAN_ID_OFFSET: int = field(default=IndexMmapLayout.CAN_ID_FILTER_CAN_ID_OFFSET, init=False, repr=False)
+    _INDEX_FILTER_ROW_OFFSET_OFFSET: int = field(default=IndexMmapLayout.CAN_ID_FILTER_ROW_OFFSET_OFFSET, init=False, repr=False)
+    _INDEX_FILTER_CHANGED_ROW_OFFSET_OFFSET: int = field(default=IndexMmapLayout.CAN_ID_FILTER_CHANGED_ROW_OFFSET_OFFSET, init=False, repr=False)
+    _INDEX_FILTER_TS_OFFSET_OFFSET: int = field(default=IndexMmapLayout.CAN_ID_FILTER_TS_OFFSET_OFFSET, init=False, repr=False)
+    _INDEX_FILTER_COUNT_OFFSET: int = field(default=IndexMmapLayout.CAN_ID_FILTER_COUNT_OFFSET, init=False, repr=False)
+    _INDEX_FILTER_CHANGED_COUNT_OFFSET: int = field(default=IndexMmapLayout.CAN_ID_FILTER_CHANGED_COUNT_OFFSET, init=False, repr=False)
+
+    _CHANNEL_INDEX_HEADER_SIZE: int = field(default=IndexMmapLayout.CHANNEL_INDEX_HEADER_SIZE, init=False, repr=False)
+    _CHANNEL_INDEX_CHANNEL_COUNT_OFFSET: int = field(default=IndexMmapLayout.CHANNEL_INDEX_HEADER_CHANNEL_COUNT_OFFSET, init=False, repr=False)
+    _CHANNEL_INDEX_MAX_CHANNELS_OFFSET: int = field(default=IndexMmapLayout.CHANNEL_INDEX_HEADER_MAX_CHANNELS_OFFSET, init=False, repr=False)
+    _CHANNEL_INDEX_MAX_ROW_POOL_SIZE_OFFSET: int = field(default=IndexMmapLayout.CHANNEL_INDEX_HEADER_MAX_ROW_POOL_SIZE_OFFSET, init=False, repr=False)
+
+    _CHANNEL_FILTER_SIZE: int = field(default=IndexMmapLayout.CHANNEL_FILTER_SIZE, init=False, repr=False)
+    _CHANNEL_FILTER_CHANNEL_INDEX_OFFSET: int = field(default=IndexMmapLayout.CHANNEL_FILTER_CHANNEL_INDEX_OFFSET, init=False, repr=False)
+    _CHANNEL_FILTER_CHANNEL_OFFSET: int = field(default=IndexMmapLayout.CHANNEL_FILTER_CHANNEL_OFFSET, init=False, repr=False)
+    _CHANNEL_FILTER_CHANNEL_CAPACITY: int = field(default=IndexMmapLayout.CHANNEL_FILTER_CHANNEL_CAPACITY, init=False, repr=False)
+    _CHANNEL_FILTER_ROW_OFFSET_OFFSET: int = field(default=IndexMmapLayout.CHANNEL_FILTER_ROW_OFFSET_OFFSET, init=False, repr=False)
+    _CHANNEL_FILTER_COUNT_OFFSET: int = field(default=IndexMmapLayout.CHANNEL_FILTER_COUNT_OFFSET, init=False, repr=False)
+
+    _DIRECTION_INDEX_HEADER_SIZE: int = field(default=IndexMmapLayout.DIRECTION_INDEX_HEADER_SIZE, init=False, repr=False)
+    _DIRECTION_INDEX_DIRECTION_COUNT_OFFSET: int = field(default=IndexMmapLayout.DIRECTION_INDEX_HEADER_DIRECTION_COUNT_OFFSET, init=False, repr=False)
+    _DIRECTION_INDEX_MAX_DIRECTIONS_OFFSET: int = field(default=IndexMmapLayout.DIRECTION_INDEX_HEADER_MAX_DIRECTIONS_OFFSET, init=False, repr=False)
+    _DIRECTION_INDEX_MAX_ROW_POOL_SIZE_OFFSET: int = field(default=IndexMmapLayout.DIRECTION_INDEX_HEADER_MAX_ROW_POOL_SIZE_OFFSET, init=False, repr=False)
+
+    _DIRECTION_FILTER_SIZE: int = field(default=IndexMmapLayout.DIRECTION_FILTER_SIZE, init=False, repr=False)
+    _DIRECTION_FILTER_DIRECTION_OFFSET: int = field(default=IndexMmapLayout.DIRECTION_FILTER_DIRECTION_OFFSET, init=False, repr=False)
+    _DIRECTION_FILTER_ROW_OFFSET_OFFSET: int = field(default=IndexMmapLayout.DIRECTION_FILTER_ROW_OFFSET_OFFSET, init=False, repr=False)
+    _DIRECTION_FILTER_COUNT_OFFSET: int = field(default=IndexMmapLayout.DIRECTION_FILTER_COUNT_OFFSET, init=False, repr=False)
     _multi_can_merge_state: Dict[Tuple[bool, Tuple[int, ...]], Dict[str, Any]] = field(default_factory=dict, init=False, repr=False)
 
     # Lightweight catalog: can_id → list of per-segment descriptors.
@@ -57,6 +92,61 @@ class CANLogRawDiskFile:
     #     return Path(self.file_path).name
 
     def __post_init__(self) -> None:
+        MmapHeaderConstract.load_from_native_binding()
+        ParsedEntryLayout.load_from_native_binding()
+        IndexMmapLayout.load_from_native_binding()
+
+        self._DATA_HEADER_SIZE = int(ParsedEntryLayout.DATA_HEADER_SIZE)
+        self._ENTRY_SIZE = int(ParsedEntryLayout.ENTRY_SIZE)
+        self._ENTRY_LINE_NUMBER_OFFSET = int(ParsedEntryLayout.LINE_NUMBER_OFFSET)
+        self._ENTRY_TIMESTAMP_OFFSET = int(ParsedEntryLayout.TIMESTAMP_OFFSET)
+        self._ENTRY_LAST_TIMESTAMP_OFFSET = int(ParsedEntryLayout.LAST_TIMESTAMP_OFFSET)
+        self._ENTRY_CAN_ID_OFFSET = int(ParsedEntryLayout.CAN_ID_OFFSET)
+        self._ENTRY_DIRECTION_OFFSET = int(ParsedEntryLayout.DIRECTION_OFFSET)
+        self._ENTRY_DATA_LEN_OFFSET = int(ParsedEntryLayout.DATA_LEN_OFFSET)
+        self._ENTRY_CHANGED_OFFSET = int(ParsedEntryLayout.CHANGED_OFFSET)
+        self._ENTRY_DATA_OFFSET = int(ParsedEntryLayout.DATA_OFFSET)
+        self._ENTRY_DATA_CAPACITY = int(ParsedEntryLayout.DATA_CAPACITY)
+        self._ENTRY_CHANNEL_OFFSET = int(ParsedEntryLayout.CHANNEL_OFFSET)
+        self._ENTRY_CHANNEL_CAPACITY = int(ParsedEntryLayout.CHANNEL_CAPACITY)
+
+        self._INDEX_HEADER_SIZE = int(IndexMmapLayout.INDEX_HEADER_SIZE)
+        self._INDEX_CAN_ID_COUNT_OFFSET = int(IndexMmapLayout.INDEX_HEADER_CAN_ID_COUNT_OFFSET)
+        self._INDEX_MAX_CAN_IDS_OFFSET = int(IndexMmapLayout.INDEX_HEADER_MAX_CAN_IDS_OFFSET)
+        self._INDEX_MAX_ROW_POOL_SIZE_OFFSET = int(IndexMmapLayout.INDEX_HEADER_MAX_ROW_POOL_SIZE_OFFSET)
+        self._INDEX_MAX_CHANGED_ROW_POOL_SIZE_OFFSET = int(IndexMmapLayout.INDEX_HEADER_MAX_CHANGED_ROW_POOL_SIZE_OFFSET)
+        self._INDEX_MAX_TS_POOL_SIZE_OFFSET = int(IndexMmapLayout.INDEX_HEADER_MAX_TS_POOL_SIZE_OFFSET)
+
+        self._INDEX_FILTER_SIZE = int(IndexMmapLayout.CAN_ID_FILTER_SIZE)
+        self._INDEX_FILTER_CAN_ID_OFFSET = int(IndexMmapLayout.CAN_ID_FILTER_CAN_ID_OFFSET)
+        self._INDEX_FILTER_ROW_OFFSET_OFFSET = int(IndexMmapLayout.CAN_ID_FILTER_ROW_OFFSET_OFFSET)
+        self._INDEX_FILTER_CHANGED_ROW_OFFSET_OFFSET = int(IndexMmapLayout.CAN_ID_FILTER_CHANGED_ROW_OFFSET_OFFSET)
+        self._INDEX_FILTER_TS_OFFSET_OFFSET = int(IndexMmapLayout.CAN_ID_FILTER_TS_OFFSET_OFFSET)
+        self._INDEX_FILTER_COUNT_OFFSET = int(IndexMmapLayout.CAN_ID_FILTER_COUNT_OFFSET)
+        self._INDEX_FILTER_CHANGED_COUNT_OFFSET = int(IndexMmapLayout.CAN_ID_FILTER_CHANGED_COUNT_OFFSET)
+
+        self._CHANNEL_INDEX_HEADER_SIZE = int(IndexMmapLayout.CHANNEL_INDEX_HEADER_SIZE)
+        self._CHANNEL_INDEX_CHANNEL_COUNT_OFFSET = int(IndexMmapLayout.CHANNEL_INDEX_HEADER_CHANNEL_COUNT_OFFSET)
+        self._CHANNEL_INDEX_MAX_CHANNELS_OFFSET = int(IndexMmapLayout.CHANNEL_INDEX_HEADER_MAX_CHANNELS_OFFSET)
+        self._CHANNEL_INDEX_MAX_ROW_POOL_SIZE_OFFSET = int(IndexMmapLayout.CHANNEL_INDEX_HEADER_MAX_ROW_POOL_SIZE_OFFSET)
+
+        self._CHANNEL_FILTER_SIZE = int(IndexMmapLayout.CHANNEL_FILTER_SIZE)
+        self._CHANNEL_FILTER_CHANNEL_INDEX_OFFSET = int(IndexMmapLayout.CHANNEL_FILTER_CHANNEL_INDEX_OFFSET)
+        self._CHANNEL_FILTER_CHANNEL_OFFSET = int(IndexMmapLayout.CHANNEL_FILTER_CHANNEL_OFFSET)
+        self._CHANNEL_FILTER_CHANNEL_CAPACITY = int(IndexMmapLayout.CHANNEL_FILTER_CHANNEL_CAPACITY)
+        self._CHANNEL_FILTER_ROW_OFFSET_OFFSET = int(IndexMmapLayout.CHANNEL_FILTER_ROW_OFFSET_OFFSET)
+        self._CHANNEL_FILTER_COUNT_OFFSET = int(IndexMmapLayout.CHANNEL_FILTER_COUNT_OFFSET)
+
+        self._DIRECTION_INDEX_HEADER_SIZE = int(IndexMmapLayout.DIRECTION_INDEX_HEADER_SIZE)
+        self._DIRECTION_INDEX_DIRECTION_COUNT_OFFSET = int(IndexMmapLayout.DIRECTION_INDEX_HEADER_DIRECTION_COUNT_OFFSET)
+        self._DIRECTION_INDEX_MAX_DIRECTIONS_OFFSET = int(IndexMmapLayout.DIRECTION_INDEX_HEADER_MAX_DIRECTIONS_OFFSET)
+        self._DIRECTION_INDEX_MAX_ROW_POOL_SIZE_OFFSET = int(IndexMmapLayout.DIRECTION_INDEX_HEADER_MAX_ROW_POOL_SIZE_OFFSET)
+
+        self._DIRECTION_FILTER_SIZE = int(IndexMmapLayout.DIRECTION_FILTER_SIZE)
+        self._DIRECTION_FILTER_DIRECTION_OFFSET = int(IndexMmapLayout.DIRECTION_FILTER_DIRECTION_OFFSET)
+        self._DIRECTION_FILTER_ROW_OFFSET_OFFSET = int(IndexMmapLayout.DIRECTION_FILTER_ROW_OFFSET_OFFSET)
+        self._DIRECTION_FILTER_COUNT_OFFSET = int(IndexMmapLayout.DIRECTION_FILTER_COUNT_OFFSET)
+
         self.mmap_dir = str(self.mmap_dir)
         self.mmap_name = str(self.mmap_name)
         if not self.mmap_dir:
@@ -176,44 +266,44 @@ class CANLogRawDiskFile:
     # ────────────────────────────────────────────────────────────────────
     #  API for filter rows
     # ────────────────────────────────────────────────────────────────────
-    def get_page_from_row_indices(self, first_line: int, page_size: int) -> List[CANLogLine]:
+    def get_page_from_row_indices(self, first_line: int, page_size: int) -> List[ParsedEntry]:
         start = max(0, int(first_line))
         end = start + max(0, int(page_size))
         return self.get_messages_by_row_indices(range(start, end))
 
-    def get_page_from_can_id_row_indices(self, can_id: int, first_line: int, page_size: int) -> List[CANLogLine]:
+    def get_page_from_can_id_row_indices(self, can_id: int, first_line: int, page_size: int) -> List[ParsedEntry]:
         page_rows = self._read_row_page_from_mmap(can_id, first_line, page_size)
         return self.get_messages_by_row_indices(page_rows)
 
-    def get_page_from_can_ids_row_indices(self, can_ids: List[int], first_line: int, page_size: int) -> List[CANLogLine]:
+    def get_page_from_can_ids_row_indices(self, can_ids: List[int], first_line: int, page_size: int) -> List[ParsedEntry]:
         merged = self._merge_can_ids_page_from_mmap(can_ids, first_line, page_size, changed=False)
         return self.get_messages_by_row_indices(merged)
 
-    def get_page_from_can_id_changed_row_indices(self, can_id: int, first_line: int, page_size: int) -> List[CANLogLine]:
+    def get_page_from_can_id_changed_row_indices(self, can_id: int, first_line: int, page_size: int) -> List[ParsedEntry]:
         page_rows = self._read_changed_row_page_from_mmap(can_id, first_line, page_size)
         return self.get_messages_by_row_indices(page_rows)
 
-    def get_page_from_can_ids_changed_row_indices(self, can_ids: List[int], first_line: int, page_size: int) -> List[CANLogLine]:
+    def get_page_from_can_ids_changed_row_indices(self, can_ids: List[int], first_line: int, page_size: int) -> List[ParsedEntry]:
         merged = self._merge_can_ids_page_from_mmap(can_ids, first_line, page_size, changed=True)
         return self.get_messages_by_row_indices(merged)
 
-    def get_page_from_channel_row_indices(self, channel: str, first_line: int, page_size: int) -> List[CANLogLine]:
+    def get_page_from_channel_row_indices(self, channel: str, first_line: int, page_size: int) -> List[ParsedEntry]:
         page_rows = self._read_channel_row_page_from_mmap(channel, first_line, page_size)
         return self.get_messages_by_row_indices(page_rows)
 
-    def get_page_from_channels_row_indices(self, channels: List[str], first_line: int, page_size: int) -> List[CANLogLine]:
+    def get_page_from_channels_row_indices(self, channels: List[str], first_line: int, page_size: int) -> List[ParsedEntry]:
         merged = self._merge_channels_page_from_mmap(channels, first_line, page_size)
         return self.get_messages_by_row_indices(merged)
 
-    def get_page_from_direction_row_indices(self, direction: str, first_line: int, page_size: int) -> List[CANLogLine]:
+    def get_page_from_direction_row_indices(self, direction: str, first_line: int, page_size: int) -> List[ParsedEntry]:
         page_rows = self._read_direction_row_page_from_mmap(direction, first_line, page_size)
         return self.get_messages_by_row_indices(page_rows)
 
-    def get_page_from_directions_row_indices(self, directions: List[str], first_line: int, page_size: int) -> List[CANLogLine]:
+    def get_page_from_directions_row_indices(self, directions: List[str], first_line: int, page_size: int) -> List[ParsedEntry]:
         merged = self._merge_directions_page_from_mmap(directions, first_line, page_size)
         return self.get_messages_by_row_indices(merged)
 
-    def get_page_from_timestamp_range(self,from_t: float,to_t: float,first_line: int,page_size: int,) -> List[CANLogLine]:
+    def get_page_from_timestamp_range(self,from_t: float,to_t: float,first_line: int,page_size: int,) -> List[ParsedEntry]:
         lo_t = float(from_t)
         hi_t = float(to_t)
         if lo_t > hi_t:
@@ -608,15 +698,15 @@ class CANLogRawDiskFile:
         if seg_idx not in seg_cache:
             f = open(segs[seg_idx], "rb")
             mm = _mmap.mmap(f.fileno(), 0, access=_mmap.ACCESS_READ)
-            entry_size, entry_struct = self._get_data_entry_layout(segs[seg_idx])
-            seg_cache[seg_idx] = (f, mm, entry_size, entry_struct)
+            entry_size, _ = self._get_data_entry_layout(segs[seg_idx])
+            seg_cache[seg_idx] = (f, mm, entry_size, None)
 
-        _, mm, entry_size, entry_struct = seg_cache[seg_idx]
+        _, mm, entry_size, _ = seg_cache[seg_idx]
         offset = self._DATA_HEADER_SIZE + local_idx * entry_size
         if offset + entry_size > len(mm):
             return None
 
-        _, timestamp, _, _, _, _, _, _, _ = entry_struct.unpack_from(mm, offset)
+        timestamp = struct.unpack_from("<d", mm, offset + self._ENTRY_TIMESTAMP_OFFSET)[0]
         return float(timestamp)
 
     def _timestamp_lower_bound_global(
@@ -635,6 +725,14 @@ class CANLogRawDiskFile:
             else:
                 hi = mid
         return lo
+
+    @staticmethod
+    def _u32_at(mm: _mmap.mmap, offset: int) -> int:
+        return int(struct.unpack_from("<I", mm, int(offset))[0])
+
+    @staticmethod
+    def _u64_at(mm: _mmap.mmap, offset: int) -> int:
+        return int(struct.unpack_from("<Q", mm, int(offset))[0])
 
     def _timestamp_upper_bound_global(
         self,
@@ -765,25 +863,27 @@ class CANLogRawDiskFile:
                 try:
                     if len(mm) < self._INDEX_HEADER_SIZE:
                         continue
-                    (
-                        can_id_count, _, _, _,
-                        max_can_ids,
-                        max_row_pool_size,
-                        max_changed_row_pool_size,
-                        max_ts_pool_size, _,
-                    ) = self._INDEX_HDR_STRUCT.unpack_from(mm, 0)
+                    can_id_count = self._u32_at(mm, self._INDEX_CAN_ID_COUNT_OFFSET)
+                    max_can_ids = self._u32_at(mm, self._INDEX_MAX_CAN_IDS_OFFSET)
+                    max_row_pool_size = self._u32_at(mm, self._INDEX_MAX_ROW_POOL_SIZE_OFFSET)
+                    max_changed_row_pool_size = self._u32_at(mm, self._INDEX_MAX_CHANGED_ROW_POOL_SIZE_OFFSET)
+                    max_ts_pool_size = self._u32_at(mm, self._INDEX_MAX_TS_POOL_SIZE_OFFSET)
 
                     filter_base = self._INDEX_HEADER_SIZE
-                    row_pool_base = filter_base + max_can_ids * self._INDEX_FILTER_STRUCT.size
+                    row_pool_base = filter_base + max_can_ids * self._INDEX_FILTER_SIZE
                     changed_pool_base = row_pool_base + max_row_pool_size * 4
                     ts_pool_base = changed_pool_base + max_changed_row_pool_size * 4
 
                     for i in range(can_id_count):
-                        off = filter_base + i * self._INDEX_FILTER_STRUCT.size
-                        if off + self._INDEX_FILTER_STRUCT.size > len(mm):
+                        off = filter_base + i * self._INDEX_FILTER_SIZE
+                        if off + self._INDEX_FILTER_SIZE > len(mm):
                             break
-                        cid, rp_off, crp_off, tp_off, count, changed_count = \
-                            self._INDEX_FILTER_STRUCT.unpack_from(mm, off)
+                        cid = self._u32_at(mm, off + self._INDEX_FILTER_CAN_ID_OFFSET)
+                        rp_off = self._u64_at(mm, off + self._INDEX_FILTER_ROW_OFFSET_OFFSET)
+                        crp_off = self._u64_at(mm, off + self._INDEX_FILTER_CHANGED_ROW_OFFSET_OFFSET)
+                        tp_off = self._u64_at(mm, off + self._INDEX_FILTER_TS_OFFSET_OFFSET)
+                        count = self._u32_at(mm, off + self._INDEX_FILTER_COUNT_OFFSET)
+                        changed_count = self._u32_at(mm, off + self._INDEX_FILTER_CHANGED_COUNT_OFFSET)
                         if count == 0 and changed_count == 0:
                             continue
                         catalog[int(cid)].append((
@@ -822,22 +922,23 @@ class CANLogRawDiskFile:
                 try:
                     if len(mm) < self._CHANNEL_INDEX_HEADER_SIZE:
                         continue
-                    (
-                        channel_count,
-                        _,
-                        max_channels,
-                        max_row_pool_size,
-                        _,
-                    ) = self._CHANNEL_INDEX_HDR_STRUCT.unpack_from(mm, 0)
+                    channel_count = self._u32_at(mm, self._CHANNEL_INDEX_CHANNEL_COUNT_OFFSET)
+                    max_channels = self._u32_at(mm, self._CHANNEL_INDEX_MAX_CHANNELS_OFFSET)
+                    max_row_pool_size = self._u32_at(mm, self._CHANNEL_INDEX_MAX_ROW_POOL_SIZE_OFFSET)
 
                     filter_base = self._CHANNEL_INDEX_HEADER_SIZE
-                    row_pool_base = filter_base + max_channels * self._CHANNEL_FILTER_STRUCT.size
+                    row_pool_base = filter_base + max_channels * self._CHANNEL_FILTER_SIZE
 
                     for i in range(channel_count):
-                        off = filter_base + i * self._CHANNEL_FILTER_STRUCT.size
-                        if off + self._CHANNEL_FILTER_STRUCT.size > len(mm):
+                        off = filter_base + i * self._CHANNEL_FILTER_SIZE
+                        if off + self._CHANNEL_FILTER_SIZE > len(mm):
                             break
-                        channel_index, channel_raw, row_off, count, _ = self._CHANNEL_FILTER_STRUCT.unpack_from(mm, off)
+                        channel_index = self._u32_at(mm, off + self._CHANNEL_FILTER_CHANNEL_INDEX_OFFSET) & 0xFF
+                        channel_start = off + self._CHANNEL_FILTER_CHANNEL_OFFSET
+                        channel_end = channel_start + self._CHANNEL_FILTER_CHANNEL_CAPACITY
+                        channel_raw = bytes(mm[channel_start:channel_end])
+                        row_off = self._u64_at(mm, off + self._CHANNEL_FILTER_ROW_OFFSET_OFFSET)
+                        count = self._u32_at(mm, off + self._CHANNEL_FILTER_COUNT_OFFSET)
                         if count == 0:
                             continue
                         channel = channel_raw.split(b"\x00", 1)[0].decode("ascii", errors="ignore").strip().lower()
@@ -875,22 +976,20 @@ class CANLogRawDiskFile:
                 try:
                     if len(mm) < self._DIRECTION_INDEX_HEADER_SIZE:
                         continue
-                    (
-                        direction_count,
-                        _,
-                        max_directions,
-                        max_row_pool_size,
-                        _,
-                    ) = self._DIRECTION_INDEX_HDR_STRUCT.unpack_from(mm, 0)
+                    direction_count = self._u32_at(mm, self._DIRECTION_INDEX_DIRECTION_COUNT_OFFSET)
+                    max_directions = self._u32_at(mm, self._DIRECTION_INDEX_MAX_DIRECTIONS_OFFSET)
+                    max_row_pool_size = self._u32_at(mm, self._DIRECTION_INDEX_MAX_ROW_POOL_SIZE_OFFSET)
 
                     filter_base = self._DIRECTION_INDEX_HEADER_SIZE
-                    row_pool_base = filter_base + max_directions * self._DIRECTION_FILTER_STRUCT.size
+                    row_pool_base = filter_base + max_directions * self._DIRECTION_FILTER_SIZE
 
                     for i in range(direction_count):
-                        off = filter_base + i * self._DIRECTION_FILTER_STRUCT.size
-                        if off + self._DIRECTION_FILTER_STRUCT.size > len(mm):
+                        off = filter_base + i * self._DIRECTION_FILTER_SIZE
+                        if off + self._DIRECTION_FILTER_SIZE > len(mm):
                             break
-                        direction_raw, row_off, count, _ = self._DIRECTION_FILTER_STRUCT.unpack_from(mm, off)
+                        direction_raw = self._u32_at(mm, off + self._DIRECTION_FILTER_DIRECTION_OFFSET) & 0xFF
+                        row_off = self._u64_at(mm, off + self._DIRECTION_FILTER_ROW_OFFSET_OFFSET)
+                        count = self._u32_at(mm, off + self._DIRECTION_FILTER_COUNT_OFFSET)
                         if count == 0:
                             continue
                         if int(row_off) + int(count) > int(max_row_pool_size):
@@ -1469,14 +1568,18 @@ class CANLogRawDiskFile:
         self._ensure_direction_catalog()
 
     def _get_data_entry_layout(self, seg_path: Path) -> Tuple[int, Any]:
-        return self._ENTRY_SIZE, self._ENTRY_STRUCT
+        return self._ENTRY_SIZE, None
+
+    def _decode_entry_from_mmap(self, mm: _mmap.mmap, offset: int) -> ParsedEntry:
+        entry_size = int(self._ENTRY_SIZE)
+        return ParsedEntry.from_buffer_copy(mm[offset:offset + entry_size])
 
     def _read_entry_by_global_row(
         self,
         segs: List[Path],
         global_row: int,
         seg_cache: Optional[Dict[int, Tuple[Any, _mmap.mmap, int, Any]]] = None,
-    ) -> Optional[CANLogLine]:
+    ) -> Optional[ParsedEntry]:
         seg_idx = int(global_row) // self.mmap_capacity
         local_idx = int(global_row) % self.mmap_capacity
         if seg_idx < 0 or seg_idx >= len(segs):
@@ -1488,38 +1591,23 @@ class CANLogRawDiskFile:
         if seg_idx not in seg_cache:
             f = open(segs[seg_idx], "rb")
             mm = _mmap.mmap(f.fileno(), 0, access=_mmap.ACCESS_READ)
-            entry_size, entry_struct = self._get_data_entry_layout(segs[seg_idx])
-            seg_cache[seg_idx] = (f, mm, entry_size, entry_struct)
+            entry_size, _ = self._get_data_entry_layout(segs[seg_idx])
+            seg_cache[seg_idx] = (f, mm, entry_size, None)
 
-        _, mm, entry_size, entry_struct = seg_cache[seg_idx]
+        _, mm, entry_size, _ = seg_cache[seg_idx]
         offset = self._DATA_HEADER_SIZE + local_idx * entry_size
         if offset + entry_size > len(mm):
             return None
-
-        line_number, timestamp, last_timestamp, can_id, direction_raw, data_len, changed_raw, data_bytes, channel_raw = entry_struct.unpack_from(mm, offset)
-        raw_data = " ".join(f"{b:02X}" for b in data_bytes[:data_len])
-        channel = channel_raw.split(b"\x00", 1)[0].decode("ascii", errors="ignore")
-        direction = "Tx" if direction_raw == 1 else "Rx"
-        return CANLogLine(
-            channel=channel,
-            can_id=int(can_id),
-            direction=direction,
-            data_len=int(data_len),
-            raw_data=raw_data,
-            changed=bool(changed_raw),
-            line_number=int(line_number),
-            timestamp=float(timestamp),
-            last_timestamp=float(last_timestamp)
-        )
+        return self._decode_entry_from_mmap(mm, offset)
 
     """ O(row_indices) """
-    def get_messages_by_row_indices(self, row_indices: List[int]) -> List[CANLogLine]:
+    def get_messages_by_row_indices(self, row_indices: List[int]) -> List[ParsedEntry]:
         segs = self.data_segment_paths()
         if not segs:
             return []
 
         row_list = row_indices
-        result: List[CANLogLine] = []
+        result: List[ParsedEntry] = []
         seg_cache: Dict[int, Tuple[Any, _mmap.mmap, int, Any]] = {}
         try:
             for global_row in row_list:
@@ -1569,8 +1657,8 @@ class CANLogRawDiskFile:
     def loaded_lines(self):
         return self.total_lines
 
-    def _read_entry_from_segment(self, seg_path: Path, local_idx: int) -> Optional[CANLogLine]:
-        entry_size, entry_struct = self._get_data_entry_layout(seg_path)
+    def _read_entry_from_segment(self, seg_path: Path, local_idx: int) -> Optional[ParsedEntry]:
+        entry_size, _ = self._get_data_entry_layout(seg_path)
         offset = self._DATA_HEADER_SIZE + local_idx * entry_size
         try:
             with open(seg_path, "rb") as f:
@@ -1578,34 +1666,15 @@ class CANLogRawDiskFile:
                 try:
                     if offset + entry_size > len(mm):
                         return None
-                    line_number, timestamp, last_timestamp, can_id, direction_raw, data_len, changed_raw, data_bytes, channel_raw = entry_struct.unpack_from(mm, offset)
+                    line = self._decode_entry_from_mmap(mm, offset)
                 finally:
                     mm.close()
         except Exception:
             return None
 
-        raw_data = " ".join(f"{b:02X}" for b in data_bytes[:data_len])
-        channel = channel_raw.split(b"\x00", 1)[0].decode("ascii", errors="ignore")
-        direction = "Tx" if direction_raw == 1 else "Rx"
-
-        line = CANLogLine(
-            channel=channel,
-            can_id=int(can_id),
-            direction=direction,
-            data_len=int(data_len),
-            raw_data=raw_data,
-            changed=bool(changed_raw),
-            line_number=int(line_number),
-            timestamp=float(timestamp),
-            last_timestamp=float(last_timestamp),
-            last_raw_data="",
-        )
-
-        line.cal_message_obj()
-        #### If decode mmap exist -> create Signal object from rawvalue.mmap, value.mmap ####
         return line
 
-    def get_page_lines(self, first_line: int, page_size: int) -> List[CANLogLine]:
+    def get_page_lines(self, first_line: int, page_size: int) -> List[ParsedEntry]:
         start = max(0, int(first_line))
         end = start + max(0, int(page_size))
         return self.get_messages_by_row_indices(range(start, end))
@@ -1618,7 +1687,7 @@ class CANLogRawDiskFile:
         self._ensure_channel_catalog()
         return self.channels
     
-    def get_all_lines(self) -> List[CANLogLine]:
+    def get_all_lines(self) -> List[ParsedEntry]:
         return self.get_page_lines(0, 20_000)
 
     def get_row_indices_by_list_id(self, can_ids: List[int]) -> List[int]:
@@ -1660,12 +1729,13 @@ class CANLogRawDiskFile:
         rows = list(row_indices)
         lines = self.get_messages_by_row_indices(rows)
         d = direction.lower()
-        return [rows[i] for i, entry in enumerate(lines) if entry.direction.lower() == d]
+        return [rows[i] for i, entry in enumerate(lines) if entry.direction_str.lower() == d]
 
     def filter_row_indices_by_channel(self, channel: str, row_indices) -> List[int]:
         rows = list(row_indices)
         lines = self.get_messages_by_row_indices(rows)
-        return [rows[i] for i, entry in enumerate(lines) if entry.channel == channel]
+        target = str(channel).lower()
+        return [rows[i] for i, entry in enumerate(lines) if entry.channel_str.lower() == target]
 
     def filter_row_indices_by_timestamp_range(self, from_t: float, to_t: float, row_indices) -> List[int]:
         rows = list(row_indices)

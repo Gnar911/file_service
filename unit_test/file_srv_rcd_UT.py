@@ -8,18 +8,18 @@ import time
 import pytest
 
 from file_service.define import MMAP_LOCAL_STORAGE_DIR
-from file_service.dispatcher.application_events import (
+from file_service.api.application_events import (
     DBCLoadedEvent,
     DecodeCompletedEvent,
     FileServiceStateEvent,
     ParserStatusEvent,
     RecorderStatusEvent,
 )
+from file_service.api.status import RecorderStatus
 from file_service.record_id import RecordId
 from file_service.parser.native.can_parser_api import MmapHeaderConstract
-from file_service.srv_if import FileService, get_file_service
+from file_service.api.srv_if import FileService, get_file_service
 from lw.base_service import ServiceState
-from file_service.parser.native.can_parser_api import DATA_STATUS_DONE, DATA_STATUS_ERROR, DATA_STATUS_RUNNING
 
 TIMEOUT_STATUS = 0.5
 PARSE_TIMEOUT = 15.0
@@ -64,6 +64,14 @@ def set_up_mmap():
             created_by_test = True
         except FileExistsError:
             shm = shared_memory.SharedMemory(name=shm_name, create=False)
+            if int(getattr(shm, "size", 0)) != shm_size:
+                shm.close()
+                try:
+                    shared_memory.SharedMemory(name=shm_name, create=False).unlink()
+                except Exception:
+                    pass
+                shm = shared_memory.SharedMemory(name=shm_name, create=True, size=shm_size)
+                created_by_test = True
 
         struct.pack_into("<Q", shm.buf, 0, 0)
         clear_end = min(len(shm.buf), 8 + (ENTRY_SIZE * 64))
@@ -83,7 +91,13 @@ def set_up_mmap():
                 shm.unlink()
             except Exception:
                 pass
-     
+
+"""
+#BUG
+The test creates shared memory with an explicit 8-byte header (shm_size = 8 + ENTRY_SIZE * slots).
+The test writer manually updates write_idx in that header with struct.pack_into("<Q", shm.buf, 0, frame_idx + 1)
+-> The writer is mocking, not the receiver writer
+"""
 def test_20_recording(file_service, qtbot) -> None:
 
     file_srv = get_file_service()
@@ -105,7 +119,7 @@ def test_20_recording(file_service, qtbot) -> None:
             recorder_record_id = payload_record_id
         status = event.payload.get("status")
         recorder_last_status = int(status) if status is not None else None
-        if status == int(DATA_STATUS_RUNNING):
+        if event.status in (RecorderStatus.RECORDING, RecorderStatus.PAUSED, RecorderStatus.IDLE):
             running_event.set()
 
     file_srv.subscribe(RecorderStatusEvent, _on_recorder_status)
@@ -173,7 +187,11 @@ def test_20_recording(file_service, qtbot) -> None:
         qtbot.waitUntil(lambda: int(record.get_progress_index()) >= mock_row_count, timeout=90_000)
 
         expected_bytes = mock_row_count * ENTRY_SIZE
-        assert recorder_last_status == int(DATA_STATUS_RUNNING)
+        assert recorder_last_status in (
+            int(RecorderStatus.RECORDING),
+            int(RecorderStatus.PAUSED),
+            int(RecorderStatus.IDLE),
+        )
         assert progress_samples
         assert int(record.get_progress_index()) >= mock_row_count
         assert staging_path.exists()
@@ -195,10 +213,54 @@ def test_20_recording(file_service, qtbot) -> None:
             shm.unlink()
 
 
-def test_21_recording_ring_overlap(file_service, qtbot, set_up_mmap) -> None:
+def test_19_stop_recording(file_service, qtbot, set_up_mmap) -> None:
     file_srv = get_file_service()
     running_event = threading.Event()
     stopped_event = threading.Event()
+    error_event = threading.Event()
+    recorder_record_id: RecordId | None = None
+
+    shm = set_up_mmap(64)
+
+    def _on_recorder_status(event: RecorderStatusEvent) -> None:
+        nonlocal recorder_record_id
+        payload_record_id = event.payload.get("record_id")
+        if isinstance(payload_record_id, RecordId):
+            recorder_record_id = payload_record_id
+        status = event.status
+        if status in (RecorderStatus.RECORDING, RecorderStatus.PAUSED, RecorderStatus.IDLE):
+            running_event.set()
+        elif status == RecorderStatus.STOPPED:
+            stopped_event.set()
+        elif status == RecorderStatus.FAILED:
+            error_event.set()
+
+    file_srv.subscribe(RecorderStatusEvent, _on_recorder_status)
+
+    assert file_srv.start_recording() is True
+    qtbot.waitUntil(lambda: running_event.is_set(), timeout=TIMEOUT_STATUS_MS)
+    assert recorder_record_id is not None
+
+    record = file_srv.get_record(recorder_record_id)
+    assert record is not None
+
+    qtbot.wait(1000)
+
+    file_srv.stop_recording()
+    qtbot.waitUntil(lambda: stopped_event.is_set(), timeout=TIMEOUT_STATUS_MS)
+    assert not error_event.is_set()
+
+    record_after_stop = file_srv.get_record(recorder_record_id)
+    assert record_after_stop is not None
+    runtime_mmap_paths = record_after_stop.get_runtime_mmap_paths()
+    assert runtime_mmap_paths["data"]
+
+
+def test_31_recording_ring_overlap(file_service, qtbot, set_up_mmap) -> None:
+    file_srv = get_file_service()
+    running_event = threading.Event()
+    stopped_event = threading.Event()
+    error_event = threading.Event()
     producer_done = threading.Event()
     producer_stop = threading.Event()
 
@@ -214,12 +276,14 @@ def test_21_recording_ring_overlap(file_service, qtbot, set_up_mmap) -> None:
         payload_record_id = event.payload.get("record_id")
         if isinstance(payload_record_id, RecordId):
             recorder_record_id = payload_record_id
-        status = event.payload.get("status")
+        status = event.status
         recorder_last_status = int(status) if status is not None else None
-        if status == int(DATA_STATUS_RUNNING):
+        if status in (RecorderStatus.RECORDING, RecorderStatus.PAUSED, RecorderStatus.IDLE):
             running_event.set()
-        elif status in (int(DATA_STATUS_DONE), int(DATA_STATUS_ERROR)):
+        elif status == RecorderStatus.STOPPED:
             stopped_event.set()
+        elif status == RecorderStatus.FAILED:
+            error_event.set()
 
     file_srv.subscribe(RecorderStatusEvent, _on_recorder_status)
     shm = set_up_mmap(ring_slots)
@@ -266,21 +330,27 @@ def test_21_recording_ring_overlap(file_service, qtbot, set_up_mmap) -> None:
         persisted_frames = payload_bytes // int(ENTRY_SIZE)
         assert persisted_frames > 0
         assert persisted_frames < mock_row_count
-        assert recorder_last_status == int(DATA_STATUS_DONE)
+        assert recorder_last_status == int(RecorderStatus.STOPPED)
+        assert not error_event.is_set()
 
         print("test_21 record_id:", recorder_record_id)
         print("test_21 persisted_frames:", persisted_frames, "target:", mock_row_count, "ring_slots:", ring_slots)
     finally:
+        try:
+            file_srv.stop_recording()
+        except Exception:
+            pass
         producer_stop.set()
         if producer_thread.ident is not None:
             producer_thread.join(timeout=2.0)
 
 
-def test_22_recording_close_early(file_service, qtbot, set_up_mmap) -> None:
+def test_42_recording_close_early(file_service, qtbot, set_up_mmap) -> None:
     """Close recording before the producer finishes; persisted frames must be < mock_row_count."""
     file_srv = get_file_service()
     running_event = threading.Event()
     stopped_event = threading.Event()
+    error_event = threading.Event()
     producer_done = threading.Event()
     producer_stop = threading.Event()
 
@@ -298,12 +368,14 @@ def test_22_recording_close_early(file_service, qtbot, set_up_mmap) -> None:
         payload_record_id = event.payload.get("record_id")
         if isinstance(payload_record_id, RecordId):
             recorder_record_id = payload_record_id
-        status = event.payload.get("status")
+        status = event.status
         recorder_last_status = int(status) if status is not None else None
-        if status == int(DATA_STATUS_RUNNING):
+        if status in (RecorderStatus.RECORDING, RecorderStatus.PAUSED, RecorderStatus.IDLE):
             running_event.set()
-        elif status in (int(DATA_STATUS_DONE), int(DATA_STATUS_ERROR)):
+        elif status == RecorderStatus.STOPPED:
             stopped_event.set()
+        elif status == RecorderStatus.FAILED:
+            error_event.set()
 
     file_srv.subscribe(RecorderStatusEvent, _on_recorder_status)
     shm = set_up_mmap(ring_slots)
@@ -357,17 +429,22 @@ def test_22_recording_close_early(file_service, qtbot, set_up_mmap) -> None:
         persisted_frames = payload_bytes // int(ENTRY_SIZE)
         assert persisted_frames > 0
         assert persisted_frames < mock_row_count
-        assert recorder_last_status == int(DATA_STATUS_DONE)
+        assert recorder_last_status == int(RecorderStatus.STOPPED)
+        assert not error_event.is_set()
 
         print("test_22 record_id:", recorder_record_id)
         print("test_22 persisted_frames:", persisted_frames, "target:", mock_row_count, "early_stop_threshold:", early_stop_threshold)
     finally:
+        try:
+            file_srv.stop_recording()
+        except Exception:
+            pass
         producer_stop.set()
         if producer_thread.ident is not None:
             producer_thread.join(timeout=2.0)
 
 
-def test_23_two_sequential_recordings(file_service, qtbot, set_up_mmap) -> None:
+def test_53_two_sequential_recordings(file_service, qtbot, set_up_mmap) -> None:
     """Two sequential recordings; each captures one half — total persisted frames == mock_row_count."""
     file_srv = get_file_service()
 
@@ -378,30 +455,37 @@ def test_23_two_sequential_recordings(file_service, qtbot, set_up_mmap) -> None:
 
     running_event_1 = threading.Event()
     stopped_event_1 = threading.Event()
+    error_event_1 = threading.Event()
     running_event_2 = threading.Event()
     stopped_event_2 = threading.Event()
+    error_event_2 = threading.Event()
 
     record_ids: list[RecordId] = []
     status_by_record: dict[RecordId, int] = {}
 
     def _on_recorder_status(event: RecorderStatusEvent) -> None:
         payload_record_id = event.payload.get("record_id")
-        status = event.payload.get("status")
+        status = event.status
         if isinstance(payload_record_id, RecordId):
             if payload_record_id not in record_ids:
                 record_ids.append(payload_record_id)
             if status is not None:
                 status_by_record[payload_record_id] = int(status)
-        if status == int(DATA_STATUS_RUNNING):
+        if status in (RecorderStatus.RECORDING, RecorderStatus.PAUSED, RecorderStatus.IDLE):
             if not running_event_1.is_set():
                 running_event_1.set()
             elif not running_event_2.is_set():
                 running_event_2.set()
-        elif status in (int(DATA_STATUS_DONE), int(DATA_STATUS_ERROR)):
+        elif status == RecorderStatus.STOPPED:
             if not stopped_event_1.is_set():
                 stopped_event_1.set()
             elif not stopped_event_2.is_set():
                 stopped_event_2.set()
+        elif status == RecorderStatus.FAILED:
+            if not error_event_1.is_set():
+                error_event_1.set()
+            elif not error_event_2.is_set():
+                error_event_2.set()
 
     file_srv.subscribe(RecorderStatusEvent, _on_recorder_status)
     shm = set_up_mmap(ring_slots)
@@ -474,8 +558,10 @@ def test_23_two_sequential_recordings(file_service, qtbot, set_up_mmap) -> None:
         assert len(record_ids) == 2
         assert persisted_1 > 0
         assert persisted_2 > 0
-        assert status_by_record[record_ids[0]] == int(DATA_STATUS_DONE)
-        assert status_by_record[record_ids[1]] == int(DATA_STATUS_DONE)
+        assert status_by_record[record_ids[0]] == int(RecorderStatus.STOPPED)
+        assert status_by_record[record_ids[1]] == int(RecorderStatus.STOPPED)
+        assert not error_event_1.is_set()
+        assert not error_event_2.is_set()
         # Frames written to the ring while recording was stopped are not captured by either session.
         assert persisted_1 + persisted_2 < mock_row_count
 
@@ -483,6 +569,10 @@ def test_23_two_sequential_recordings(file_service, qtbot, set_up_mmap) -> None:
         print("test_23 record_id_2:", record_ids[1], "persisted_2:", persisted_2)
         print("test_23 total:", persisted_1 + persisted_2, "mock_row_count:", mock_row_count)
     finally:
+        try:
+            file_srv.stop_recording()
+        except Exception:
+            pass
         producer_stop.set()
         if producer_thread.ident is not None:
             producer_thread.join(timeout=2.0)

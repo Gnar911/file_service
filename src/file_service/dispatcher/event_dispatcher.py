@@ -5,7 +5,7 @@ from typing import Any, Callable
 
 from lw.logger_setup import LOG
 from lw.observer import ObservableEvent
-from .application_events import (
+from ..api.application_events import (
     DBCLoadedEvent,
     DecodeCompletedEvent,
     DecodeFileNotFoundEvent,
@@ -22,9 +22,9 @@ from .application_events import (
 )
 
 from file_service.parser.native.can_parser_api import (
-    DATA_STATUS_DONE,
-    DATA_STATUS_ERROR,
-    DATA_STATUS_RUNNING,
+    PARSER_STATUS_DONE,
+    PARSER_STATUS_ERROR,
+    PARSER_STATUS_RUNNING,
 )
 from dataclasses import dataclass
 import sys
@@ -180,9 +180,9 @@ class FileServiceDispatcher:
                 "Failed to query parser status"
             )
 
-            status = DATA_STATUS_ERROR
+            status = PARSER_STATUS_ERROR
 
-        if status in (DATA_STATUS_DONE, DATA_STATUS_ERROR):
+        if status in (PARSER_STATUS_DONE, PARSER_STATUS_ERROR):
             self.unregister_worker(registration)
 
 

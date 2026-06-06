@@ -8,7 +8,6 @@ from file_service.decode.native.can_decoder_api import (
     CanDecoderLib,
     DecodeDB,
     RowIndexMmap,
-    DECODE_STATUS_ERROR,
     estimate_sample_count,
 )
 from file_service.parser.native.can_parser_api import IndexMmapData, MmapData
@@ -16,17 +15,7 @@ from file_service.parser.native.can_parser_api import MmapHeaderConstract
 
 
 class NativeDecoder:
-    @classmethod
-    def get_status(cls, record_id=None, row_index_mmap_path: str | None = None) -> int:
-        if not row_index_mmap_path:
-            return int(DECODE_STATUS_ERROR)
-
-        try:
-            with RowIndexMmap(str(row_index_mmap_path)) as row_index_mmap:
-                return int(row_index_mmap.status)
-        except Exception as error:
-            LOG.error("Decode mmap status read failed for %s: %s", record_id, error)
-            return int(DECODE_STATUS_ERROR)
+    pass
 
 
 def _segment_paths(base_path: str) -> list[Path]:

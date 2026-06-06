@@ -1,26 +1,28 @@
 from __future__ import annotations
 
-import struct
 import time
-from typing import Any
 
 from lw.logger_setup import LOG
-from lw.shm_ring import CAPACITY, ENTRY_SIZE
+from file_service.repository.file_handler.ring_handler import (
+    CAPACITY,
+    ENTRY_SIZE,
+    ENTRY_STRUCT,
+    CanLogRingHandler,
+)
 
 
 _PARTIAL_FLUSH_IDLE_S = 0.02
 _IDLE_SLEEP_S = 0.0001
-_WRITE_IDX_OFFSET = 0
-_HEADER_SIZE = 8
 
 
 class SharedMemoryRingReader:
-    def __init__(self, shm_buf: Any):
-        self._shm_buf = shm_buf
+    def __init__(self, shm_name: str):
+        self._ring = CanLogRingHandler(mmap_name=str(shm_name), create=False)
+        self._ring.open()
         self._read_idx = self._write_idx()
 
     def _write_idx(self) -> int:
-        return int(struct.unpack_from("<Q", self._shm_buf, _WRITE_IDX_OFFSET)[0])
+        return int(self._ring.read_header().write_idx)
 
     @property
     def frames_read(self) -> int:
@@ -50,13 +52,24 @@ class SharedMemoryRingReader:
 
         buf = bytearray(batch_count * ENTRY_SIZE)
         for i in range(batch_count):
-            slot = (self._read_idx + i) % CAPACITY
-            src_off = _HEADER_SIZE + (slot * ENTRY_SIZE)
+            payload = self._ring.read_by_index(self._read_idx + i)
+            channel_16 = payload.channel.encode("ascii", errors="ignore")[:16].ljust(16, b"\x00")
+            entry_bytes = ENTRY_STRUCT.pack(
+                float(payload.timestamp),
+                int(payload.can_id),
+                int(payload.direction),
+                max(0, min(int(payload.data_len), 64)),
+                bytes(payload.data or b"")[:64].ljust(64, b"\x00"),
+                channel_16,
+            )
             dst_off = i * ENTRY_SIZE
-            buf[dst_off : dst_off + ENTRY_SIZE] = self._shm_buf[src_off : src_off + ENTRY_SIZE]
+            buf[dst_off : dst_off + ENTRY_SIZE] = entry_bytes
 
         self._read_idx += batch_count
         return buf
+
+    def close(self) -> None:
+        self._ring.close()
 
     @staticmethod
     def should_flush_partial(available: int, last_flush_t: float, now_t: float) -> bool:

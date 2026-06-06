@@ -7,3 +7,4 @@ src/file_service/data/
 src/file_service/parser/dumps/mmap/
 *.mmap
 /build/
+src/file_service/cpp/build/

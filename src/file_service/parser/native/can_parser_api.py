@@ -69,7 +69,7 @@ class MmapHeaderConstract:
 class ParsedEntry(ctypes.Structure):
     _pack_ = 1
     _fields_ = [
-        ("line_number",  ctypes.c_uint32),      #  4
+        ("line_number",  ctypes.c_uint32),       #  4
         ("timestamp",    ctypes.c_double),       #  8
         ("last_timestamp", ctypes.c_double),     #  8
         ("can_id",       ctypes.c_uint32),       #  4
@@ -106,7 +106,170 @@ class _CanParserHandle(ctypes.Structure):
 CanParserHandlePtr = ctypes.POINTER(_CanParserHandle)
 
 
-_ENTRY_SIZE: int = ctypes.sizeof(ParsedEntry)  # 107
+class ParsedEntryLayout:
+    ENTRY_SIZE = ctypes.sizeof(ParsedEntry)
+    LINE_NUMBER_OFFSET = 0
+    TIMESTAMP_OFFSET = 4
+    LAST_TIMESTAMP_OFFSET = 12
+    CAN_ID_OFFSET = 20
+    DIRECTION_OFFSET = 24
+    DATA_LEN_OFFSET = 25
+    CHANGED_OFFSET = 26
+    DATA_OFFSET = 27
+    DATA_CAPACITY = 64
+    CHANNEL_OFFSET = 91
+    CHANNEL_CAPACITY = 16
+    DATA_HEADER_SIZE = MmapHeaderConstract.SIZE
+
+    @classmethod
+    def load_from_native_binding(cls) -> None:
+        try:
+            lib = load_library()
+
+            lib.can_parser_entry_size.argtypes = []
+            lib.can_parser_entry_size.restype = ctypes.c_uint32
+            lib.can_parser_entry_line_number_offset.argtypes = []
+            lib.can_parser_entry_line_number_offset.restype = ctypes.c_uint32
+            lib.can_parser_entry_timestamp_offset.argtypes = []
+            lib.can_parser_entry_timestamp_offset.restype = ctypes.c_uint32
+            lib.can_parser_entry_last_timestamp_offset.argtypes = []
+            lib.can_parser_entry_last_timestamp_offset.restype = ctypes.c_uint32
+            lib.can_parser_entry_can_id_offset.argtypes = []
+            lib.can_parser_entry_can_id_offset.restype = ctypes.c_uint32
+            lib.can_parser_entry_direction_offset.argtypes = []
+            lib.can_parser_entry_direction_offset.restype = ctypes.c_uint32
+            lib.can_parser_entry_data_len_offset.argtypes = []
+            lib.can_parser_entry_data_len_offset.restype = ctypes.c_uint32
+            lib.can_parser_entry_changed_offset.argtypes = []
+            lib.can_parser_entry_changed_offset.restype = ctypes.c_uint32
+            lib.can_parser_entry_data_offset.argtypes = []
+            lib.can_parser_entry_data_offset.restype = ctypes.c_uint32
+            lib.can_parser_entry_data_capacity.argtypes = []
+            lib.can_parser_entry_data_capacity.restype = ctypes.c_uint32
+            lib.can_parser_entry_channel_offset.argtypes = []
+            lib.can_parser_entry_channel_offset.restype = ctypes.c_uint32
+            lib.can_parser_entry_channel_capacity.argtypes = []
+            lib.can_parser_entry_channel_capacity.restype = ctypes.c_uint32
+            lib.can_parser_data_header_size.argtypes = []
+            lib.can_parser_data_header_size.restype = ctypes.c_uint32
+
+            entry_size = int(lib.can_parser_entry_size())
+            if entry_size <= 0:
+                return
+
+            cls.ENTRY_SIZE = entry_size
+            cls.LINE_NUMBER_OFFSET = int(lib.can_parser_entry_line_number_offset())
+            cls.TIMESTAMP_OFFSET = int(lib.can_parser_entry_timestamp_offset())
+            cls.LAST_TIMESTAMP_OFFSET = int(lib.can_parser_entry_last_timestamp_offset())
+            cls.CAN_ID_OFFSET = int(lib.can_parser_entry_can_id_offset())
+            cls.DIRECTION_OFFSET = int(lib.can_parser_entry_direction_offset())
+            cls.DATA_LEN_OFFSET = int(lib.can_parser_entry_data_len_offset())
+            cls.CHANGED_OFFSET = int(lib.can_parser_entry_changed_offset())
+            cls.DATA_OFFSET = int(lib.can_parser_entry_data_offset())
+            cls.DATA_CAPACITY = int(lib.can_parser_entry_data_capacity())
+            cls.CHANNEL_OFFSET = int(lib.can_parser_entry_channel_offset())
+            cls.CHANNEL_CAPACITY = int(lib.can_parser_entry_channel_capacity())
+            cls.DATA_HEADER_SIZE = int(lib.can_parser_data_header_size())
+        except Exception:
+            return
+
+
+class IndexMmapLayout:
+    INDEX_HEADER_SIZE = 40
+    INDEX_HEADER_CAN_ID_COUNT_OFFSET = 0
+    INDEX_HEADER_ROW_POOL_SIZE_OFFSET = 4
+    INDEX_HEADER_CHANGED_ROW_POOL_SIZE_OFFSET = 8
+    INDEX_HEADER_TS_POOL_SIZE_OFFSET = 12
+    INDEX_HEADER_MAX_CAN_IDS_OFFSET = 16
+    INDEX_HEADER_MAX_ROW_POOL_SIZE_OFFSET = 20
+    INDEX_HEADER_MAX_CHANGED_ROW_POOL_SIZE_OFFSET = 24
+    INDEX_HEADER_MAX_TS_POOL_SIZE_OFFSET = 28
+
+    CAN_ID_FILTER_SIZE = 36
+    CAN_ID_FILTER_CAN_ID_OFFSET = 0
+    CAN_ID_FILTER_ROW_OFFSET_OFFSET = 4
+    CAN_ID_FILTER_CHANGED_ROW_OFFSET_OFFSET = 12
+    CAN_ID_FILTER_TS_OFFSET_OFFSET = 20
+    CAN_ID_FILTER_COUNT_OFFSET = 28
+    CAN_ID_FILTER_CHANGED_COUNT_OFFSET = 32
+
+    CHANNEL_INDEX_HEADER_SIZE = 32
+    CHANNEL_INDEX_HEADER_CHANNEL_COUNT_OFFSET = 0
+    CHANNEL_INDEX_HEADER_MAX_CHANNELS_OFFSET = 8
+    CHANNEL_INDEX_HEADER_MAX_ROW_POOL_SIZE_OFFSET = 12
+
+    CHANNEL_FILTER_SIZE = 32
+    CHANNEL_FILTER_CHANNEL_INDEX_OFFSET = 0
+    CHANNEL_FILTER_CHANNEL_OFFSET = 1
+    CHANNEL_FILTER_CHANNEL_CAPACITY = 15
+    CHANNEL_FILTER_ROW_OFFSET_OFFSET = 16
+    CHANNEL_FILTER_COUNT_OFFSET = 24
+
+    DIRECTION_INDEX_HEADER_SIZE = 32
+    DIRECTION_INDEX_HEADER_DIRECTION_COUNT_OFFSET = 0
+    DIRECTION_INDEX_HEADER_MAX_DIRECTIONS_OFFSET = 8
+    DIRECTION_INDEX_HEADER_MAX_ROW_POOL_SIZE_OFFSET = 12
+
+    DIRECTION_FILTER_SIZE = 24
+    DIRECTION_FILTER_DIRECTION_OFFSET = 0
+    DIRECTION_FILTER_ROW_OFFSET_OFFSET = 8
+    DIRECTION_FILTER_COUNT_OFFSET = 16
+
+    @classmethod
+    def load_from_native_binding(cls) -> None:
+        try:
+            lib = load_library()
+
+            def _u32(name: str) -> int:
+                fn = getattr(lib, name)
+                fn.argtypes = []
+                fn.restype = ctypes.c_uint32
+                return int(fn())
+
+            cls.INDEX_HEADER_SIZE = _u32("can_parser_index_header_size")
+            cls.INDEX_HEADER_CAN_ID_COUNT_OFFSET = _u32("can_parser_index_header_can_id_count_offset")
+            cls.INDEX_HEADER_ROW_POOL_SIZE_OFFSET = _u32("can_parser_index_header_row_pool_size_offset")
+            cls.INDEX_HEADER_CHANGED_ROW_POOL_SIZE_OFFSET = _u32("can_parser_index_header_changed_row_pool_size_offset")
+            cls.INDEX_HEADER_TS_POOL_SIZE_OFFSET = _u32("can_parser_index_header_ts_pool_size_offset")
+            cls.INDEX_HEADER_MAX_CAN_IDS_OFFSET = _u32("can_parser_index_header_max_can_ids_offset")
+            cls.INDEX_HEADER_MAX_ROW_POOL_SIZE_OFFSET = _u32("can_parser_index_header_max_row_pool_size_offset")
+            cls.INDEX_HEADER_MAX_CHANGED_ROW_POOL_SIZE_OFFSET = _u32("can_parser_index_header_max_changed_row_pool_size_offset")
+            cls.INDEX_HEADER_MAX_TS_POOL_SIZE_OFFSET = _u32("can_parser_index_header_max_ts_pool_size_offset")
+
+            cls.CAN_ID_FILTER_SIZE = _u32("can_parser_can_id_filter_size")
+            cls.CAN_ID_FILTER_CAN_ID_OFFSET = _u32("can_parser_can_id_filter_can_id_offset")
+            cls.CAN_ID_FILTER_ROW_OFFSET_OFFSET = _u32("can_parser_can_id_filter_row_offset_offset")
+            cls.CAN_ID_FILTER_CHANGED_ROW_OFFSET_OFFSET = _u32("can_parser_can_id_filter_changed_row_offset_offset")
+            cls.CAN_ID_FILTER_TS_OFFSET_OFFSET = _u32("can_parser_can_id_filter_ts_offset_offset")
+            cls.CAN_ID_FILTER_COUNT_OFFSET = _u32("can_parser_can_id_filter_count_offset")
+            cls.CAN_ID_FILTER_CHANGED_COUNT_OFFSET = _u32("can_parser_can_id_filter_changed_count_offset")
+
+            cls.CHANNEL_INDEX_HEADER_SIZE = _u32("can_parser_channel_index_header_size")
+            cls.CHANNEL_INDEX_HEADER_CHANNEL_COUNT_OFFSET = _u32("can_parser_channel_index_header_channel_count_offset")
+            cls.CHANNEL_INDEX_HEADER_MAX_CHANNELS_OFFSET = _u32("can_parser_channel_index_header_max_channels_offset")
+            cls.CHANNEL_INDEX_HEADER_MAX_ROW_POOL_SIZE_OFFSET = _u32("can_parser_channel_index_header_max_row_pool_size_offset")
+
+            cls.CHANNEL_FILTER_SIZE = _u32("can_parser_channel_filter_size")
+            cls.CHANNEL_FILTER_CHANNEL_INDEX_OFFSET = _u32("can_parser_channel_filter_channel_index_offset")
+            cls.CHANNEL_FILTER_CHANNEL_OFFSET = _u32("can_parser_channel_filter_channel_offset")
+            cls.CHANNEL_FILTER_CHANNEL_CAPACITY = _u32("can_parser_channel_filter_channel_capacity")
+            cls.CHANNEL_FILTER_ROW_OFFSET_OFFSET = _u32("can_parser_channel_filter_row_offset_offset")
+            cls.CHANNEL_FILTER_COUNT_OFFSET = _u32("can_parser_channel_filter_count_offset")
+
+            cls.DIRECTION_INDEX_HEADER_SIZE = _u32("can_parser_direction_index_header_size")
+            cls.DIRECTION_INDEX_HEADER_DIRECTION_COUNT_OFFSET = _u32("can_parser_direction_index_header_direction_count_offset")
+            cls.DIRECTION_INDEX_HEADER_MAX_DIRECTIONS_OFFSET = _u32("can_parser_direction_index_header_max_directions_offset")
+            cls.DIRECTION_INDEX_HEADER_MAX_ROW_POOL_SIZE_OFFSET = _u32("can_parser_direction_index_header_max_row_pool_size_offset")
+
+            cls.DIRECTION_FILTER_SIZE = _u32("can_parser_direction_filter_size")
+            cls.DIRECTION_FILTER_DIRECTION_OFFSET = _u32("can_parser_direction_filter_direction_offset")
+            cls.DIRECTION_FILTER_ROW_OFFSET_OFFSET = _u32("can_parser_direction_filter_row_offset_offset")
+            cls.DIRECTION_FILTER_COUNT_OFFSET = _u32("can_parser_direction_filter_count_offset")
+        except Exception:
+            return
+
+
+_ENTRY_SIZE: int = ParsedEntryLayout.ENTRY_SIZE
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -155,15 +318,15 @@ _CANID_FILTER_SIZE: int = ctypes.sizeof(CANIDFilter)  # 36
 # data.mmap layout — 32-byte header + ParsedEntry array
 #   offset  0 : uint64  write_count  (C++ increments after writing each entry)
 #   offset  8 : uint32  capacity     (set at creation, read-only after that)
-#   offset 12 : uint32  status       (DataStatus, written by C++)
+#   offset 12 : uint32  status       (ParserStatus, written by C++)
 #   offset 16 : 16 bytes padding
 #   offset 32 : ParsedEntry[capacity]
-DATA_HEADER_SIZE = 32
+DATA_HEADER_SIZE = ParsedEntryLayout.DATA_HEADER_SIZE
 _HDR_STRUCT = struct.Struct("<QII16x")  # write_count(8) capacity(4) status(4) pad(16)
 
-DATA_STATUS_RUNNING = 0
-DATA_STATUS_DONE = 1
-DATA_STATUS_ERROR = 2
+PARSER_STATUS_RUNNING = 0
+PARSER_STATUS_DONE = 1
+PARSER_STATUS_ERROR = 2
 
 # CAN-ID index mmap constants
 # IndexHeader layout (40 bytes):
@@ -179,6 +342,12 @@ DATA_STATUS_ERROR = 2
 #   offset 36 : 4 bytes padding
 INDEX_HEADER_SIZE = 40
 _IDX_HDR_STRUCT = struct.Struct("<IIIIIIIII4x")  # 9×4 + 4 pad = 40 bytes
+
+MmapHeaderConstract.load_from_native_binding()
+ParsedEntryLayout.load_from_native_binding()
+IndexMmapLayout.load_from_native_binding()
+_ENTRY_SIZE = ParsedEntryLayout.ENTRY_SIZE
+DATA_HEADER_SIZE = ParsedEntryLayout.DATA_HEADER_SIZE
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -197,7 +366,7 @@ class MmapData:
         """Create and initialise a new data mmap file sized for *capacity* entries."""
         total = DATA_HEADER_SIZE + capacity * _ENTRY_SIZE
         with open(path, "w+b") as f:
-            f.write(_HDR_STRUCT.pack(0, capacity, DATA_STATUS_RUNNING))
+            f.write(_HDR_STRUCT.pack(0, capacity, PARSER_STATUS_RUNNING))
             f.seek(total - 1)
             f.write(b"\x00")
         return cls(path)
@@ -221,7 +390,7 @@ class MmapData:
 
     @property
     def is_done(self) -> bool:
-        return self.status != DATA_STATUS_RUNNING
+        return self.status != PARSER_STATUS_RUNNING
 
     # ── entry reads ─────────────────────────────────────────────────────────
     def read_entry(self, index: int) -> Optional[ParsedEntry]:
@@ -293,7 +462,7 @@ class IndexMmapData:
                 max_row_pool_size,
                 max_changed_row_pool_size,
                 max_ts_pool_size,
-                DATA_STATUS_RUNNING,
+                PARSER_STATUS_RUNNING,
             ))
             f.seek(total - 1)
             f.write(b"\x00")
@@ -345,7 +514,7 @@ class IndexMmapData:
 
     @property
     def is_done(self) -> bool:
-        return self.status != DATA_STATUS_RUNNING
+        return self.status != PARSER_STATUS_RUNNING
 
     # ── lookup ─────────────────────────────────────────────────────
     def get_row_indices(self, can_id: int) -> List[int]:
@@ -556,6 +725,29 @@ class CanParserLib:
         ]
         lib.can_parser_run_worker_segmented.restype = ctypes.c_int32
 
+        # int32_t can_parser_segmented_open_and_init(const char* data_base_path,
+        #                                            const char* index_base_path)
+        if hasattr(lib, "can_parser_segmented_open_and_init"):
+            lib.can_parser_segmented_open_and_init.argtypes = [
+                ctypes.c_char_p,
+                ctypes.c_char_p,
+            ]
+            lib.can_parser_segmented_open_and_init.restype = ctypes.c_int32
+
+        # int32_t can_parser_segmented_perform_all(const ParsedEntry* entries,
+        #                                          uint32_t count)
+        if hasattr(lib, "can_parser_segmented_perform_all"):
+            lib.can_parser_segmented_perform_all.argtypes = [
+                ctypes.POINTER(ParsedEntry),
+                ctypes.c_uint32,
+            ]
+            lib.can_parser_segmented_perform_all.restype = ctypes.c_int32
+
+        # void can_parser_segmented_close_and_finalize()
+        if hasattr(lib, "can_parser_segmented_close_and_finalize"):
+            lib.can_parser_segmented_close_and_finalize.argtypes = []
+            lib.can_parser_segmented_close_and_finalize.restype = None
+
         if hasattr(lib, "can_parser_run_worker_dummy"):
             # legacy optional symbol
             lib.can_parser_run_worker_dummy.argtypes = [
@@ -634,8 +826,49 @@ class CanParserLib:
 
     def get_status(self) -> int:
         if not hasattr(self._lib, "get_status"):
-            return DATA_STATUS_ERROR
+            return PARSER_STATUS_ERROR
         return int(self._lib.get_status())
+
+    # ── segmented mmap lifecycle API ─────────────────────────────────────────
+    def segmented_open_and_init(self, data_base_path: str, index_base_path: str = "") -> int:
+        """
+        Open and initialise all segment writers (data, direction, channel, CAN-ID).
+        Must be called before segmented_perform_all().
+        Returns 0 on success, negative error code on failure.
+        """
+        if not hasattr(self._lib, "can_parser_segmented_open_and_init"):
+            return -1
+        return int(self._lib.can_parser_segmented_open_and_init(
+            str(data_base_path).encode("utf-8"),
+            str(index_base_path).encode("utf-8") if index_base_path else ctypes.c_char_p(b""),
+        ))
+
+    def segmented_perform_all(self, entries: List[ParsedEntry]) -> int:
+        """
+        Write a batch of parsed entries to all segment mmaps.
+        Requires that segmented_open_and_init() was called successfully.
+        Returns 0 on success, negative error code on failure.
+        """
+        if not hasattr(self._lib, "can_parser_segmented_perform_all"):
+            return -1
+        if not entries:
+            return 0
+        # Convert Python list to C array
+        entries_array = (ParsedEntry * len(entries))()
+        for i, entry in enumerate(entries):
+            entries_array[i] = entry
+        return int(self._lib.can_parser_segmented_perform_all(
+            entries_array,
+            ctypes.c_uint32(len(entries)),
+        ))
+
+    def segmented_close_and_finalize(self) -> None:
+        """
+        Close all segment writers and finalize mmap headers.
+        Must be called after recording is complete.
+        """
+        if hasattr(self._lib, "can_parser_segmented_close_and_finalize"):
+            self._lib.can_parser_segmented_close_and_finalize()
 
     def open_monitor(self, data_base_path: str, index_base_path: str = "") -> "CanParserMonitor | None":
         if not hasattr(self._lib, "can_parser_open"):
@@ -673,7 +906,7 @@ class CanParserMonitor:
 
     def get_status(self) -> int:
         if self._closed:
-            return DATA_STATUS_ERROR
+            return PARSER_STATUS_ERROR
         return int(self._lib.can_parser_get_status(self._handle))
 
     def get_wait_source(self) -> int | None:

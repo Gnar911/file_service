@@ -7,6 +7,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_library(file_service_core SHARED
     can_parser.cpp
+    write_data_segmented.cpp
+    parsed_entry_layout.cpp
     can_decoder.cpp
     can_log_decoder.cpp
     mmap_wrapper.cpp
@@ -24,4 +26,6 @@ endif()
 
 set_target_properties(file_service_core PROPERTIES
     OUTPUT_NAME file_service_core
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN ON
 )

@@ -5,15 +5,11 @@ from typing import Any
 
 from lw.logger_setup import LOG
 from lw.platform.linux_platform import _set_linux_process_name
-from lw.shm_ring import BATCH_SIZE
-from file_service.recorder.mmap_batch_writer import MmapBatchWriter
+from file_service.repository.file_handler.ring_handler import BATCH_SIZE
+from file_service.recorder.rcd_batch_writer import MmapBatchWriter
 from file_service.parser.native.can_parser_api import MmapHeaderConstract
-from file_service.recorder.status import (
-    RECORDER_STATUS_IDLE,
-    RECORDER_STATUS_STOP,
-    RECORDER_STATUS_WRITE,
-)
-from file_service.recorder.shared_memory_ring_reader import SharedMemoryRingReader
+from file_service.api.status import RecorderStatus
+from file_service.recorder.rcd_ring_reader import SharedMemoryRingReader
 
 
 class RecorderProcess:
@@ -23,31 +19,27 @@ class RecorderProcess:
         output_mmap_path: str,
         stop_event: Any,
         wakeup,
+        state,
     ):
         self._shm_name = shm_name
         self._output_mmap_path = output_mmap_path
         self._stop_event = stop_event
         self._wakeup = wakeup
-        self._shm = None
+        self._state = state
         self._ring: SharedMemoryRingReader | None = None
         self._writer: MmapBatchWriter | None = None
 
     def _set_status(self, status: int) -> None:
-        if self._writer is None:
-            return
-        self._writer.set_status(int(status))
+        self._state.value = int(status)
         self._wakeup.signal()
 
     def run(self) -> None:
         _set_linux_process_name("CBCM-writer")
         MmapHeaderConstract.load_from_native_binding()
 
-        from multiprocessing import shared_memory
-
-        self._shm = shared_memory.SharedMemory(name=self._shm_name, create=False)
-        self._ring = SharedMemoryRingReader(self._shm.buf)
+        self._ring = SharedMemoryRingReader(self._shm_name)
         self._writer = MmapBatchWriter(self._output_mmap_path)
-        current_status = int(RECORDER_STATUS_IDLE)
+        current_status = int(RecorderStatus.IDLE)
         self._set_status(current_status)
         last_write_idx = int(self._ring.write_idx)
 
@@ -56,8 +48,8 @@ class RecorderProcess:
         try:
             while not self._stop_event.is_set():
                 current_write_idx = int(self._ring.write_idx)
-                if current_write_idx == last_write_idx and current_status != int(RECORDER_STATUS_IDLE):
-                    current_status = int(RECORDER_STATUS_IDLE)
+                if current_write_idx == last_write_idx and current_status != int(RecorderStatus.IDLE):
+                    current_status = int(RecorderStatus.PAUSED)
                     self._set_status(current_status)
 
                 available = self._ring.available
@@ -86,7 +78,10 @@ class RecorderProcess:
         finally:
             frames_written = self.frames_written
             bytes_written = self.bytes_written
-            self._set_status(int(RECORDER_STATUS_STOP))
+            if had_error:
+                self._set_status(int(RecorderStatus.FAILED))
+            else:
+                self._set_status(int(RecorderStatus.STOPPED))
             self._close()
             LOG.debug("[WRITER] Exiting — wrote %d frames (%d bytes).", frames_written, bytes_written)
 
@@ -112,18 +107,18 @@ class RecorderProcess:
 
         self._writer.write(self._ring.read_batch(batch_count), batch_count)
 
-        if int(current_status) != int(RECORDER_STATUS_WRITE):
-            self._set_status(int(RECORDER_STATUS_WRITE))
-            current_status = int(RECORDER_STATUS_WRITE)
+        if int(current_status) != int(RecorderStatus.RECORDING):
+            self._set_status(int(RecorderStatus.RECORDING))
+            current_status = int(RecorderStatus.RECORDING)
 
         return int(current_status)
 
     def _close(self) -> None:
         if self._writer is not None:
             self._writer.close()
-        if self._shm is not None:
+        if self._ring is not None:
             try:
-                self._shm.close()
+                self._ring.close()
             except Exception:
                 pass
 

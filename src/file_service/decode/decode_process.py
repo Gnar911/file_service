@@ -8,6 +8,7 @@ from file_service.decode.decode_source import decode_process
 from file_service.dispatcher.qt_object import IPCWakeup
 from file_service.parser.native.can_parser_api import MmapHeaderConstract
 from lw.logger_setup import LOG
+from file_service.api.status import DecodeStatus
 
 
 def run_decode_async(
@@ -15,10 +16,11 @@ def run_decode_async(
     db_file_path: str,
     wakeup: IPCWakeup,
     dbc_pkl_path: str,
+    state,
 ) -> mp.Process:
     proc = mp.Process(
         target=_run_decode_job,
-        args=(record_mmap_path, db_file_path, wakeup, dbc_pkl_path),
+        args=(record_mmap_path, db_file_path, wakeup, dbc_pkl_path, state),
         daemon=True,
         name="FileService-decoder",
     )
@@ -31,11 +33,15 @@ def _run_decode_job(
     db_file_path: str,
     wakeup: IPCWakeup,
     dbc_pkl_path: str,
+    state,
 ) -> None:
     MmapHeaderConstract.load_from_native_binding()
     try:
-        decode_process(record_mmap_path, db_file_path, wakeup, dbc_pkl_path)
+        state.value = int(DecodeStatus.RUNNING)
+        ok = bool(decode_process(record_mmap_path, db_file_path, wakeup, dbc_pkl_path))
+        state.value = int(DecodeStatus.DONE if ok else DecodeStatus.FAILED)
     except Exception as exc:
+        state.value = int(DecodeStatus.FAILED)
         LOG.error("Decode worker failed: %s", exc)
     finally:
         wakeup.signal()
