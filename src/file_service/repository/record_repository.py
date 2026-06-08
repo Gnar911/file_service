@@ -102,20 +102,17 @@ class RecordRepository:
         copied = record.save_record()
         return copied > 0
 
-    def remove_record(self, record_id: RecordId, delete_runtime_mmaps: bool = False) -> bool:
+    def remove_record(self, record_id: RecordId) -> bool:
         with self.data_lock:
             record = self._records_by_id.pop(record_id, None)
             if record is None:
                 return False
             mmap_key = self._normalize_mmap_base(record.get_base_path())
             self._record_id_by_mmap_path.pop(mmap_key, None)
-
-        if delete_runtime_mmaps:
-            record.delete_runtime_mmaps()
         return True
 
     def mark_failed(self, file_key: RecordId) -> None:
-        self.remove_record(file_key, delete_runtime_mmaps=True)
+        self.remove_record(file_key)
 
 
 # DEPRECATED names

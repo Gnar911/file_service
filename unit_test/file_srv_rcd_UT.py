@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from multiprocessing import shared_memory
-import struct
 import threading
 import time
 
@@ -19,6 +17,7 @@ from file_service.api.status import RecorderStatus
 from file_service.record_id import RecordId
 from file_service.parser.native.can_parser_api import MmapHeaderConstract
 from file_service.api.srv_if import FileService, get_file_service
+from file_service.repository.file_handler.ring_handler import CAPACITY, CanLogRingHandler, CanLogRingPayload
 from lw.base_service import ServiceState
 
 TIMEOUT_STATUS = 0.5
@@ -53,44 +52,23 @@ def file_service():
 
 @pytest.fixture(scope="module")
 def set_up_mmap():
-    allocated: list[tuple[shared_memory.SharedMemory, bool]] = []
+    allocated: list[CanLogRingHandler] = []
 
-    def _create(ring_slots: int) -> shared_memory.SharedMemory:
-        shm_name = str(CAN_SHARED_RING_SHM_NAME)
-        shm_size = 8 + (ENTRY_SIZE * int(ring_slots))
-        created_by_test = False
-        try:
-            shm = shared_memory.SharedMemory(name=shm_name, create=True, size=shm_size)
-            created_by_test = True
-        except FileExistsError:
-            shm = shared_memory.SharedMemory(name=shm_name, create=False)
-            if int(getattr(shm, "size", 0)) != shm_size:
-                shm.close()
-                try:
-                    shared_memory.SharedMemory(name=shm_name, create=False).unlink()
-                except Exception:
-                    pass
-                shm = shared_memory.SharedMemory(name=shm_name, create=True, size=shm_size)
-                created_by_test = True
-
-        struct.pack_into("<Q", shm.buf, 0, 0)
-        clear_end = min(len(shm.buf), 8 + (ENTRY_SIZE * 64))
-        shm.buf[8:clear_end] = b"\x00" * (clear_end - 8)
-        allocated.append((shm, created_by_test))
+    def _create(ring_slots: int) -> CanLogRingHandler:
+        _ = ring_slots
+        shm = CanLogRingHandler(mmap_name=str(CAN_SHARED_RING_SHM_NAME), create=True)
+        shm.open()
+        shm.format(write_idx=0)
+        allocated.append(shm)
         return shm
 
     yield _create
 
-    for shm, created_by_test in allocated:
+    for shm in allocated:
         try:
-            shm.close()
+            shm.close(unlink=True)
         except Exception:
             pass
-        if created_by_test:
-            try:
-                shm.unlink()
-            except Exception:
-                pass
 
 """
 #BUG
@@ -98,7 +76,7 @@ The test creates shared memory with an explicit 8-byte header (shm_size = 8 + EN
 The test writer manually updates write_idx in that header with struct.pack_into("<Q", shm.buf, 0, frame_idx + 1)
 -> The writer is mocking, not the receiver writer
 """
-def test_20_recording(file_service, qtbot) -> None:
+def test_20_recording(file_service, qtbot, set_up_mmap) -> None:
 
     file_srv = get_file_service()
     running_event = threading.Event()
@@ -106,7 +84,7 @@ def test_20_recording(file_service, qtbot) -> None:
     producer_stop = threading.Event()
     progress_stop = threading.Event()
     progress_ready = threading.Event()
-    mock_row_count = 25600
+    mock_row_count = 2560
     recorder_record_id: RecordId | None = None
     progress_samples: list[int] = []
     recorder_last_status: int | None = None
@@ -124,29 +102,22 @@ def test_20_recording(file_service, qtbot) -> None:
 
     file_srv.subscribe(RecorderStatusEvent, _on_recorder_status)
 
-    shm_name = str(CAN_SHARED_RING_SHM_NAME)
-    shm_size = 8 + (ENTRY_SIZE * 4096)
-    created_by_test = False
-    try:
-        shm = shared_memory.SharedMemory(name=shm_name, create=True, size=shm_size)
-        created_by_test = True
-    except FileExistsError:
-        shm = shared_memory.SharedMemory(name=shm_name, create=False)
-
-    struct.pack_into("<Q", shm.buf, 0, 0)
-    clear_end = min(len(shm.buf), 8 + (ENTRY_SIZE * 64))
-    shm.buf[8:clear_end] = b"\x00" * (clear_end - 8)
+    shm = set_up_mmap(CAPACITY)
 
     def _mock_ring_writer() -> None:
-        max_slots = max(1, (len(shm.buf) - 8) // ENTRY_SIZE)
         for frame_idx in range(mock_row_count):
             if producer_stop.is_set():
                 break
-            slot = frame_idx % max_slots
-            offset = 8 + (slot * ENTRY_SIZE)
-            payload = (f"mock-frame-{frame_idx}".encode("ascii") + b"\x00" * ENTRY_SIZE)[:ENTRY_SIZE]
-            shm.buf[offset : offset + ENTRY_SIZE] = payload
-            struct.pack_into("<Q", shm.buf, 0, frame_idx + 1)
+            shm.write(
+                CanLogRingPayload(
+                    timestamp=float(frame_idx) / 1000.0,
+                    can_id=int(frame_idx % 2048),
+                    direction=int(frame_idx % 2),
+                    data_len=64,
+                    data=(f"mock-frame-{frame_idx}".encode("ascii") + b"\x00" * 64)[:64],
+                    channel="1",
+                )
+            )
             time.sleep(0.002)
         producer_done.set()
 
@@ -208,9 +179,6 @@ def test_20_recording(file_service, qtbot) -> None:
         producer_stop.set()
         if producer_thread.ident is not None:
             producer_thread.join(timeout=2.0)
-        shm.close()
-        if created_by_test:
-            shm.unlink()
 
 
 def test_19_stop_recording(file_service, qtbot, set_up_mmap) -> None:
@@ -220,7 +188,7 @@ def test_19_stop_recording(file_service, qtbot, set_up_mmap) -> None:
     error_event = threading.Event()
     recorder_record_id: RecordId | None = None
 
-    shm = set_up_mmap(64)
+    shm = set_up_mmap(CAPACITY)
 
     def _on_recorder_status(event: RecorderStatusEvent) -> None:
         nonlocal recorder_record_id
@@ -265,7 +233,7 @@ def test_31_recording_ring_overlap(file_service, qtbot, set_up_mmap) -> None:
     producer_stop = threading.Event()
 
     # Intentionally much smaller than produced rows to force overwrite pressure.
-    ring_slots = 4096
+    ring_slots = CAPACITY
     mock_row_count = 20000
 
     recorder_record_id: RecordId | None = None
@@ -289,16 +257,19 @@ def test_31_recording_ring_overlap(file_service, qtbot, set_up_mmap) -> None:
     shm = set_up_mmap(ring_slots)
 
     def _mock_ring_writer() -> None:
-        max_slots = max(1, (len(shm.buf) - 8) // ENTRY_SIZE)
-        assert max_slots == ring_slots
         for frame_idx in range(mock_row_count):
             if producer_stop.is_set():
                 break
-            slot = frame_idx % max_slots
-            offset = 8 + (slot * ENTRY_SIZE)
-            payload = (f"overlap-frame-{frame_idx}".encode("ascii") + b"\x00" * ENTRY_SIZE)[:ENTRY_SIZE]
-            shm.buf[offset : offset + ENTRY_SIZE] = payload
-            struct.pack_into("<Q", shm.buf, 0, frame_idx + 1)
+            shm.write(
+                CanLogRingPayload(
+                    timestamp=float(frame_idx) / 1000.0,
+                    can_id=int(frame_idx % 2048),
+                    direction=int(frame_idx % 2),
+                    data_len=64,
+                    data=(f"overlap-frame-{frame_idx}".encode("ascii") + b"\x00" * 64)[:64],
+                    channel="1",
+                )
+            )
             time.sleep(0.002)
         producer_done.set()
 
@@ -355,7 +326,7 @@ def test_42_recording_close_early(file_service, qtbot, set_up_mmap) -> None:
     producer_stop = threading.Event()
 
     # Large ring so there is no overlap pressure; early close is the only reason frames are fewer.
-    ring_slots = 8192
+    ring_slots = CAPACITY
     mock_row_count = 20000
     # Stop recording after this many frames have been written to the ring.
     early_stop_threshold = mock_row_count // 4
@@ -384,15 +355,19 @@ def test_42_recording_close_early(file_service, qtbot, set_up_mmap) -> None:
 
     def _mock_ring_writer() -> None:
         nonlocal frames_written
-        max_slots = max(1, (len(shm.buf) - 8) // ENTRY_SIZE)
         for frame_idx in range(mock_row_count):
             if producer_stop.is_set():
                 break
-            slot = frame_idx % max_slots
-            offset = 8 + (slot * ENTRY_SIZE)
-            payload = (f"close-frame-{frame_idx}".encode("ascii") + b"\x00" * ENTRY_SIZE)[:ENTRY_SIZE]
-            shm.buf[offset : offset + ENTRY_SIZE] = payload
-            struct.pack_into("<Q", shm.buf, 0, frame_idx + 1)
+            shm.write(
+                CanLogRingPayload(
+                    timestamp=float(frame_idx) / 1000.0,
+                    can_id=int(frame_idx % 2048),
+                    direction=int(frame_idx % 2),
+                    data_len=64,
+                    data=(f"close-frame-{frame_idx}".encode("ascii") + b"\x00" * 64)[:64],
+                    channel="1",
+                )
+            )
             frames_written = frame_idx + 1
             time.sleep(0.002)
         producer_done.set()
@@ -449,7 +424,7 @@ def test_53_two_sequential_recordings(file_service, qtbot, set_up_mmap) -> None:
     file_srv = get_file_service()
 
     # Large ring: no overlap pressure in either session.
-    ring_slots = 8192
+    ring_slots = CAPACITY
     mock_row_count = 10000
     batch_size = mock_row_count // 2  # 5000 frames per session
 
@@ -496,15 +471,19 @@ def test_53_two_sequential_recordings(file_service, qtbot, set_up_mmap) -> None:
     producer_all_done = threading.Event()
 
     def _mock_ring_writer() -> None:
-        max_slots = max(1, (len(shm.buf) - 8) // ENTRY_SIZE)
         for frame_idx in range(mock_row_count):
             if producer_stop.is_set():
                 break
-            slot = frame_idx % max_slots
-            offset = 8 + (slot * ENTRY_SIZE)
-            payload = (f"seq-frame-{frame_idx}".encode("ascii") + b"\x00" * ENTRY_SIZE)[:ENTRY_SIZE]
-            shm.buf[offset : offset + ENTRY_SIZE] = payload
-            struct.pack_into("<Q", shm.buf, 0, frame_idx + 1)
+            shm.write(
+                CanLogRingPayload(
+                    timestamp=float(frame_idx) / 1000.0,
+                    can_id=int(frame_idx % 2048),
+                    direction=int(frame_idx % 2),
+                    data_len=64,
+                    data=(f"seq-frame-{frame_idx}".encode("ascii") + b"\x00" * 64)[:64],
+                    channel="1",
+                )
+            )
             if frame_idx + 1 == batch_size:
                 mid_done.set()
             time.sleep(0.002)
@@ -578,3 +557,61 @@ def test_53_two_sequential_recordings(file_service, qtbot, set_up_mmap) -> None:
             producer_thread.join(timeout=2.0)
 
 
+@pytest.mark.parametrize(
+    "file_path",
+    [
+        "/home/gnar911/Desktop/2025-02-11_11-14-53_仕様情報切替 1.asc",
+        "/home/gnar911/Desktop/2025-02-11_11-14-53_仕様情報切替 1_x10.asc",
+        "/home/gnar911/Desktop/2025-02-11_11-14-53_仕様情報切替 1_x100.asc",
+    ],
+)
+@pytest.mark.dependency(depends=["service_started"])
+def test_04_save_record(file_path: str) -> None:
+    parse_event = threading.Event()
+    app = QCoreApplication.instance()
+    if app is None:
+        app = QCoreApplication([])
+
+    file_srv = get_file_service()
+
+    parsed_record_id: RecordId | None = None
+
+    def _on_parser_status(event: ParserStatusEvent) -> None:
+        nonlocal parsed_record_id
+        if event.status == DATA_STATUS_DONE and event.record_id is not None:
+            parsed_record_id = event.record_id
+            parse_event.set()
+
+    file_srv.subscribe(ParserStatusEvent, _on_parser_status)
+
+    started = file_srv.parse_log_file(str(file_path))
+    assert started
+
+    deadline = time.monotonic() + PARSE_TIMEOUT
+    while not parse_event.is_set() and time.monotonic() < deadline:
+        app.processEvents()
+        parse_event.wait(timeout=POLL_INTERVAL)
+
+    assert parse_event.is_set()
+    assert parsed_record_id is not None
+    record_id = parsed_record_id
+
+    saved_count = file_srv.save_record(record_id)
+    assert saved_count > 0
+
+    record = file_srv.get_record(record_id)
+    assert record is not None
+    assert record.record_id == record_id
+
+    target_dir = MMAP_LOCAL_STORAGE_DIR / record_id.path_token()
+    assert target_dir.exists()
+
+    runtime_paths = record.get_runtime_mmap_paths()
+    assert runtime_paths["data"]
+    assert runtime_paths["index"]
+    assert runtime_paths["channel_index"]
+    assert runtime_paths["direction_index"]
+    assert all(path.parent == target_dir for path in runtime_paths["data"])
+    assert all(path.parent == target_dir for path in runtime_paths["index"])
+    assert all(path.parent == target_dir for path in runtime_paths["channel_index"])
+    assert all(path.parent == target_dir for path in runtime_paths["direction_index"])

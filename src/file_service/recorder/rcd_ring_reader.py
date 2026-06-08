@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from typing import List
 
 from lw.logger_setup import LOG
 from file_service.repository.file_handler.ring_handler import (
@@ -8,6 +9,7 @@ from file_service.repository.file_handler.ring_handler import (
     ENTRY_SIZE,
     ENTRY_STRUCT,
     CanLogRingHandler,
+    CanLogRingPayload,
 )
 
 
@@ -36,10 +38,10 @@ class SharedMemoryRingReader:
     def available(self) -> int:
         return self._write_idx() - int(self._read_idx)
 
-    def read_batch(self, count: int) -> bytearray:
+    def read_batch(self, count: int) -> List[CanLogRingPayload]:
         batch_count = max(0, int(count))
         if batch_count <= 0:
-            return bytearray()
+            return []
 
         current_write_idx = self._write_idx()
         current_read_idx = int(self._read_idx)
@@ -50,23 +52,12 @@ class SharedMemoryRingReader:
             current_read_idx,
         )
 
-        buf = bytearray(batch_count * ENTRY_SIZE)
+        payloads: List[CanLogRingPayload] = []
         for i in range(batch_count):
-            payload = self._ring.read_by_index(self._read_idx + i)
-            channel_16 = payload.channel.encode("ascii", errors="ignore")[:16].ljust(16, b"\x00")
-            entry_bytes = ENTRY_STRUCT.pack(
-                float(payload.timestamp),
-                int(payload.can_id),
-                int(payload.direction),
-                max(0, min(int(payload.data_len), 64)),
-                bytes(payload.data or b"")[:64].ljust(64, b"\x00"),
-                channel_16,
-            )
-            dst_off = i * ENTRY_SIZE
-            buf[dst_off : dst_off + ENTRY_SIZE] = entry_bytes
+            payloads.append(self._ring.read_by_index(self._read_idx + i))
 
         self._read_idx += batch_count
-        return buf
+        return payloads
 
     def close(self) -> None:
         self._ring.close()

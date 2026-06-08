@@ -9,7 +9,7 @@ from lw.singleton import SingletonMeta
 from ..file_service import FileService as _FileServiceImpl
 from ..repository.record import Record
 from ..record_id import RecordId
-from file_service.parser.native.can_parser_api import ParsedEntry
+from file_service.module.parsed_mmap import ParsedEntry
 
 class FileService:
     def __init__(self, service: _FileServiceImpl):

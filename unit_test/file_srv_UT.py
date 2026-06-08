@@ -43,65 +43,6 @@ def test_01_start_service() -> None:
     assert running_event.wait(timeout=TIMEOUT)
     assert file_srv.get_service_state() == ServiceState.RUNNING
 
-@pytest.mark.parametrize(
-    "file_path",
-    [
-        "/home/gnar911/Desktop/2025-02-11_11-14-53_仕様情報切替 1.asc",
-        "/home/gnar911/Desktop/2025-02-11_11-14-53_仕様情報切替 1_x10.asc",
-        "/home/gnar911/Desktop/2025-02-11_11-14-53_仕様情報切替 1_x100.asc",
-    ],
-)
-@pytest.mark.dependency(depends=["service_started"])
-def test_04_save_record(file_path: str) -> None:
-    parse_event = threading.Event()
-    app = QCoreApplication.instance()
-    if app is None:
-        app = QCoreApplication([])
-
-    file_srv = get_file_service()
-
-    parsed_record_id: RecordId | None = None
-
-    def _on_parser_status(event: ParserStatusEvent) -> None:
-        nonlocal parsed_record_id
-        if event.status == DATA_STATUS_DONE and event.record_id is not None:
-            parsed_record_id = event.record_id
-            parse_event.set()
-
-    file_srv.subscribe(ParserStatusEvent, _on_parser_status)
-
-    started = file_srv.parse_log_file(str(file_path))
-    assert started
-
-    deadline = time.monotonic() + PARSE_TIMEOUT
-    while not parse_event.is_set() and time.monotonic() < deadline:
-        app.processEvents()
-        parse_event.wait(timeout=POLL_INTERVAL)
-
-    assert parse_event.is_set()
-    assert parsed_record_id is not None
-    record_id = parsed_record_id
-
-    saved_count = file_srv.save_record(record_id)
-    assert saved_count > 0
-
-    record = file_srv.get_record(record_id)
-    assert record is not None
-    assert record.record_id == record_id
-
-    target_dir = MMAP_LOCAL_STORAGE_DIR / record_id.path_token()
-    assert target_dir.exists()
-
-    runtime_paths = record.get_runtime_mmap_paths()
-    assert runtime_paths["data"]
-    assert runtime_paths["index"]
-    assert runtime_paths["channel_index"]
-    assert runtime_paths["direction_index"]
-    assert all(path.parent == target_dir for path in runtime_paths["data"])
-    assert all(path.parent == target_dir for path in runtime_paths["index"])
-    assert all(path.parent == target_dir for path in runtime_paths["channel_index"])
-    assert all(path.parent == target_dir for path in runtime_paths["direction_index"])
-
 
 @pytest.mark.dependency(name="load_record", depends=["service_started"])
 @pytest.mark.parametrize(

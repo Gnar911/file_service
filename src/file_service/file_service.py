@@ -93,12 +93,13 @@ class FileService(BaseService):
         record = self._log_repository.get_record(record_id)
         if record is None:
             return False
-        
+
         if not record.has_runtime_mmaps():
             return False
 
-        mmap_name = str(record.raw.mmap_name)
-        if not mmap_name:
+        runtime_paths = record.get_runtime_mmap_paths()
+        data_paths = runtime_paths.get("data", [])
+        if not data_paths:
             return False
 
         dbc_pkl_path = str(record.get_dbc_pkl_path())
@@ -128,7 +129,7 @@ class FileService(BaseService):
         record = self._log_repository.get_record(record_id)
         if record is None:
             return False
-        recorder_mmap_path = str(record.raw.data_mmap_path)
+        recorder_mmap_path = str(record.get_data_mmap_path())
 
         wakeup = self._dispatcher.create_worker_wakeup()
         self._dispatcher.register_decoder_worker(
@@ -152,6 +153,15 @@ class FileService(BaseService):
                 self._recorder_state,
             ),
         )
+        try:
+            data_base = Path(recorder_mmap_path).with_suffix("")
+            first_segment = data_base.parent / f"{data_base.name}.000.mmap"
+            first_segment.parent.mkdir(parents=True, exist_ok=True)
+            first_segment.touch(exist_ok=True)
+        except Exception:
+            LOG.debug("Failed to prime recorder data mmap placeholder", exc_info=True)
+        if self._recorder_proc is not None:
+            self.on_recorder_callback()
         return True
 
     def stop_recording(self) -> None:
@@ -178,10 +188,10 @@ class FileService(BaseService):
         self,
         record_id: RecordId,
         data_mmap_path: str,
-        index_mmap_path: str,
+        _runtime_mmap_path: str,
         file_path: str | None = None,
     ) -> bool:
-        _ = (record_id, data_mmap_path, index_mmap_path, file_path)
+        _ = (record_id, data_mmap_path, _runtime_mmap_path, file_path)
         LOG.warning("attach_runtime_storage is deprecated: RecordRepository owns mmap path allocation")
         return False
 
@@ -292,8 +302,7 @@ class FileService(BaseService):
 
         proc = run_parser_async(
             file_path,
-            str(record.raw.data_mmap_path),
-            str(record.raw.index_mmap_path),
+            str(record.get_base_path()),
             wakeup,
             self._parser_state,
         )
@@ -362,11 +371,7 @@ class FileService(BaseService):
 
     def on_recorder_callback(self) -> bool:
         recorder_mmap_path = self._active_recording_mmap_path
-        try:
-            recorder_state = RecorderStatus(int(self._recorder_state.value))
-        except Exception:
-            recorder_state = RecorderStatus.FAILED
-
+        recorder_state = RecorderStatus(int(self._recorder_state.value))
         status = int(recorder_state)
         if status != self._recorder_last_status:
             self._recorder_last_status = status
@@ -393,22 +398,18 @@ class FileService(BaseService):
     def on_parser_callback(self) -> int:
         record_id = self._active_parse_record_id
         record = self._log_repository.get_record(record_id) if record_id is not None else None
-        try:
-            worker_state = ParserStatus(int(self._parser_state.value))
-        except Exception:
-            worker_state = ParserStatus.FAILED
-
+        worker_state = ParserStatus(int(self._parser_state.value))
         status = int(worker_state)
-
         if worker_state == ParserStatus.DONE and record_id is not None:
-            if record is not None:
-                record.refresh_runtime()
+            LOG.info("Parser finished with DONE for record_id=%s", record_id)
 
         if worker_state == ParserStatus.FAILED and record_id is not None:
             self._log_repository.mark_failed(record_id)
+            LOG.error("Parser finished with FAILED for record_id=%s", record_id)
 
         if worker_state in (ParserStatus.DONE, ParserStatus.FAILED):
             self._active_parse_record_id = None
+        message = "parser worker completed" if worker_state == ParserStatus.DONE else "parser worker failed" if worker_state == ParserStatus.FAILED else "parser worker status"
         self._dispatcher.dispatch_event(
             ParserStatusEvent(
                 record_id=record_id,
@@ -417,6 +418,7 @@ class FileService(BaseService):
                 payload={
                     "record_id": record_id,
                     "status": status,
+                    "message": message,
                 },
             )
         )
@@ -437,10 +439,8 @@ class FileService(BaseService):
             self._active_decode_db_file_path = None
             self._worker_alive["decoder"] = False
 
-        try:
-            worker_state = DecodeStatus(int(self._decoder_state.value))
-        except Exception:
-            worker_state = DecodeStatus.FAILED
+
+        worker_state = DecodeStatus(int(self._decoder_state.value))
 
         status = int(worker_state)
 
@@ -508,5 +508,7 @@ class FileService(BaseService):
             )
         )
 
+        _reset_decode_state()
+        return True
         _reset_decode_state()
         return True

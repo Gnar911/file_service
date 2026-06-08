@@ -105,7 +105,7 @@ class RecorderProcess:
         if batch_count <= 0:
             return int(current_status)
 
-        self._writer.write(self._ring.read_batch(batch_count), batch_count)
+        self._writer.write(self._ring.read_batch(batch_count))
 
         if int(current_status) != int(RecorderStatus.RECORDING):
             self._set_status(int(RecorderStatus.RECORDING))

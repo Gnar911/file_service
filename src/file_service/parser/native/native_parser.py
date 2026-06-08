@@ -14,7 +14,7 @@ class NativeParser:
         return LogParser()._detect_format(file_path)
 
     @classmethod
-    def run_native_to_mmap(cls, file_path: str, base_path: str) -> bool:
+    def run_native_to_mmap(cls, file_path: str, token_id: str) -> bool:
         cls.file_path = file_path
         fmt = cls._detect_format(file_path)
         if fmt is None:
@@ -25,7 +25,7 @@ class NativeParser:
             _lib = _CanParserLib.get()._lib
             rc = _lib.can_parser_run_worker_segmented(
                 file_path.encode("utf-8"),
-                base_path.encode("utf-8"),
+                token_id.encode("utf-8"),
                 fmt,
             )
             return rc == 0
@@ -34,5 +34,5 @@ class NativeParser:
             return False
         
     @classmethod
-    def parse(cls, file_path: str, base_path: str) -> bool:
-        return cls.run_native_to_mmap(file_path, str(base_path))
+    def parse(cls, file_path: str, token_id: str) -> bool:
+        return cls.run_native_to_mmap(file_path, str(token_id))

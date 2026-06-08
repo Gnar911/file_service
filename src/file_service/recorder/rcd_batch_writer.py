@@ -5,30 +5,32 @@ from pathlib import Path
 from typing import List
 
 from lw.logger_setup import LOG
-from file_service.parser.native.can_parser_api import CanParserLib, ParsedEntry
-from file_service.repository.file_handler.ring_handler import ENTRY_SIZE, ENTRY_STRUCT
+from file_service.parser.native.can_parser_api import ParsedEntry, ParsedEntryHandlerClient
+from file_service.repository.file_handler.ring_handler import CanLogRingPayload
+
+
 class MmapBatchWriter:
-    def __init__(self, output_mmap_path: str | Path):
+    def __init__(self, output_mmap_path: str | Path, token_id: str | Path | None = None):
         self._out = Path(output_mmap_path)
         self._state_path = self._out.parent / f"{self._out.name}.state.json"
         self._out.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Get the C++ library instance
-        self._lib = CanParserLib.get()
+
+        if token_id is None:
+            self._token_id = self._out.with_suffix(".token")
+        else:
+            self._token_id = Path(token_id)
         
         # Initialise segment writers
         self._frames_written = 0
         self._batch_write_count = 0
         self._opened = False
         self._closed = False
-        
-        # Open and initialise segment writers
-        base_path = str(self._out.with_suffix(""))  # Remove .mmap suffix if present
-        rc = self._lib.segmented_open_and_init(base_path, base_path)
-        if rc != 0:
-            raise RuntimeError(f"Failed to open segment writers: error code {rc}")
+
+        # Open and initialise segment writers through native ParsedEntryHandler.
+        self._handler = ParsedEntryHandlerClient(str(self._token_id))
+        self._handler.open()
         self._opened = True
-        
+
         self._write_state_file()
 
     @property
@@ -46,50 +48,28 @@ class MmapBatchWriter:
         # Same as bytes_written for compatibility
         return self.bytes_written
 
-    def write(self, batch: bytearray, frame_count: int) -> None:
+    def write(self, batch: List[CanLogRingPayload]) -> None:
         """
-        Write a batch of CAN frames to segmented mmap.
+        Write a batch of ring payloads to segmented mmap.
         """
-        count = int(frame_count)
-        if count <= 0:
+        if not batch:
             return
-
-        raw = bytes(batch)
-        available = len(raw) // ENTRY_SIZE
-        use_count = min(count, available)
-        if use_count <= 0:
-            LOG.warning(
-                "[RECORDER][MMAP] empty/invalid batch: frame_count=%d bytes=%d",
-                count,
-                len(raw),
-            )
-            return
-
-        if available < count:
-            LOG.warning(
-                "[RECORDER][MMAP] truncated batch: requested=%d available=%d",
-                count,
-                available,
-            )
 
         entries: List[ParsedEntry] = []
-        for i in range(use_count):
-            src_off = i * ENTRY_SIZE
-            ts, can_id, direction, data_len, data_64, channel_16 = ENTRY_STRUCT.unpack_from(raw, src_off)
-
+        for i, payload in enumerate(batch):
             entry = ParsedEntry()
             entry.line_number = int(self._frames_written + i + 1)
-            entry.timestamp = float(ts)
-            entry.last_timestamp = float(ts)
-            entry.can_id = int(can_id)
-            entry.direction = int(direction) & 0xFF
-            entry.data_len = max(0, min(int(data_len), 64))
+            entry.timestamp = float(payload.timestamp)
+            entry.last_timestamp = float(payload.timestamp)
+            entry.can_id = int(payload.can_id)
+            entry.direction = int(payload.direction) & 0xFF
+            entry.data_len = max(0, min(int(payload.data_len), 64))
             entry.changed = 0
 
             for j in range(64):
-                entry.data[j] = data_64[j]
+                entry.data[j] = payload.data[j] if j < len(payload.data) else 0
 
-            entry.channel = bytes(channel_16)
+            entry.channel = payload.channel.encode("ascii", errors="ignore")[:16]
             entries.append(entry)
 
         self.write_parsed_entries(entries)
@@ -105,9 +85,7 @@ class MmapBatchWriter:
         if not self._opened or self._closed:
             raise RuntimeError("Segment writers not opened or already closed")
 
-        rc = self._lib.segmented_perform_all(entries)
-        if rc != 0:
-            raise RuntimeError(f"Failed to write entries to segmented mmap: error code {rc}")
+        self._handler.write(entries)
 
         self._frames_written += len(entries)
         self._batch_write_count += 1
@@ -125,7 +103,7 @@ class MmapBatchWriter:
             return
             
         if self._opened:
-            self._lib.segmented_close_and_finalize()
+            self._handler.close()
             self._closed = True
             self._opened = False
 

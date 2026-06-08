@@ -9,8 +9,7 @@ from file_service.api.status import ParserStatus
 
 def run_parser_async(
     file_path: str,
-    data_mmap_path: str,
-    index_mmap_path: str,
+    token_id: str,
     wakeup: IPCWakeup,
     state,
 ) -> mp.Process:
@@ -18,8 +17,7 @@ def run_parser_async(
             target=run_parse,
             args=(
                 file_path,
-                data_mmap_path,
-                index_mmap_path,
+                token_id,
                 wakeup,
                 state,
             ),
@@ -30,12 +28,12 @@ def run_parser_async(
     proc.start()
     return proc
 
-def run_parse(file_path: str, data_mmap_path: str, index_mmap_path: str, wakeup: IPCWakeup, state) -> None:
+def run_parse(file_path: str, token_id: str, wakeup: IPCWakeup, state) -> None:
     _set_linux_process_name("CBCM-parser")
     MmapHeaderConstract.load_from_native_binding()
     try:
         state.value = int(ParserStatus.RUNNING)
-        rc = NativeParser.parse(file_path, data_mmap_path, index_mmap_path)
+        rc = NativeParser.parse(file_path, token_id)
         if not rc:
             state.value = int(ParserStatus.FAILED)
             LOG.error(f"C++ run failed (returned {rc})")

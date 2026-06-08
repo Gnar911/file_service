@@ -106,6 +106,13 @@ class _CanParserHandle(ctypes.Structure):
 CanParserHandlePtr = ctypes.POINTER(_CanParserHandle)
 
 
+class _ParsedEntryHandlerOpaque(ctypes.Structure):
+    pass
+
+
+ParsedEntryHandlerHandlePtr = ctypes.POINTER(_ParsedEntryHandlerOpaque)
+
+
 class ParsedEntryLayout:
     ENTRY_SIZE = ctypes.sizeof(ParsedEntry)
     LINE_NUMBER_OFFSET = 0
@@ -685,68 +692,39 @@ class CanParserLib:
         lib.can_parser_free_entries.argtypes = [ctypes.POINTER(ParsedEntry)]
         lib.can_parser_free_entries.restype  = None
 
-        # int32_t can_parser_run_worker(const char* file_path,
-        #                               const char* data_path,
-        #                               const char* index_path,
-        #                               int32_t fmt,
-        #                               uint32_t check_interval)
-        lib.can_parser_run_worker.argtypes = [
-            ctypes.c_char_p,
-            ctypes.c_char_p,
-            ctypes.c_char_p,
-            ctypes.c_int32,
-            ctypes.c_uint32,
-        ]
-        lib.can_parser_run_worker.restype = ctypes.c_int32
-
-        # int32_t can_parser_run_worker_2pass(const char* file_path,
-        #                                     const char* data_path,
-        #                                     const char* index_path,
-        #                                     int32_t fmt,
-        #                                     uint32_t    max_can_ids)
-        lib.can_parser_run_worker_2pass.argtypes = [
-            ctypes.c_char_p,
-            ctypes.c_char_p,
-            ctypes.c_char_p,
-            ctypes.c_int32,
-            ctypes.c_uint32,
-        ]
-        lib.can_parser_run_worker_2pass.restype = ctypes.c_int32
-
         # int32_t can_parser_run_worker_segmented(const char* file_path,
-        #                                         const char* data_base_path,
-        #                                         const char* index_base_path,
+        #                                         const char* base_path,
         #                                         int32_t fmt)
         lib.can_parser_run_worker_segmented.argtypes = [
-            ctypes.c_char_p,
             ctypes.c_char_p,
             ctypes.c_char_p,
             ctypes.c_int32,
         ]
         lib.can_parser_run_worker_segmented.restype = ctypes.c_int32
 
-        # int32_t can_parser_segmented_open_and_init(const char* data_base_path,
-        #                                            const char* index_base_path)
-        if hasattr(lib, "can_parser_segmented_open_and_init"):
-            lib.can_parser_segmented_open_and_init.argtypes = [
-                ctypes.c_char_p,
-                ctypes.c_char_p,
-            ]
-            lib.can_parser_segmented_open_and_init.restype = ctypes.c_int32
+        if hasattr(lib, "parsed_entry_handler_create"):
+            lib.parsed_entry_handler_create.argtypes = [ctypes.c_char_p]
+            lib.parsed_entry_handler_create.restype = ParsedEntryHandlerHandlePtr
 
-        # int32_t can_parser_segmented_perform_all(const ParsedEntry* entries,
-        #                                          uint32_t count)
-        if hasattr(lib, "can_parser_segmented_perform_all"):
-            lib.can_parser_segmented_perform_all.argtypes = [
+        if hasattr(lib, "parsed_entry_handler_destroy"):
+            lib.parsed_entry_handler_destroy.argtypes = [ParsedEntryHandlerHandlePtr]
+            lib.parsed_entry_handler_destroy.restype = None
+
+        if hasattr(lib, "parsed_entry_handler_open"):
+            lib.parsed_entry_handler_open.argtypes = [ParsedEntryHandlerHandlePtr]
+            lib.parsed_entry_handler_open.restype = ctypes.c_int32
+
+        if hasattr(lib, "parsed_entry_handler_write"):
+            lib.parsed_entry_handler_write.argtypes = [
+                ParsedEntryHandlerHandlePtr,
                 ctypes.POINTER(ParsedEntry),
                 ctypes.c_uint32,
             ]
-            lib.can_parser_segmented_perform_all.restype = ctypes.c_int32
+            lib.parsed_entry_handler_write.restype = ctypes.c_int32
 
-        # void can_parser_segmented_close_and_finalize()
-        if hasattr(lib, "can_parser_segmented_close_and_finalize"):
-            lib.can_parser_segmented_close_and_finalize.argtypes = []
-            lib.can_parser_segmented_close_and_finalize.restype = None
+        if hasattr(lib, "parsed_entry_handler_close"):
+            lib.parsed_entry_handler_close.argtypes = [ParsedEntryHandlerHandlePtr]
+            lib.parsed_entry_handler_close.restype = ctypes.c_int32
 
         if hasattr(lib, "can_parser_run_worker_dummy"):
             # legacy optional symbol
@@ -829,47 +807,6 @@ class CanParserLib:
             return PARSER_STATUS_ERROR
         return int(self._lib.get_status())
 
-    # ── segmented mmap lifecycle API ─────────────────────────────────────────
-    def segmented_open_and_init(self, data_base_path: str, index_base_path: str = "") -> int:
-        """
-        Open and initialise all segment writers (data, direction, channel, CAN-ID).
-        Must be called before segmented_perform_all().
-        Returns 0 on success, negative error code on failure.
-        """
-        if not hasattr(self._lib, "can_parser_segmented_open_and_init"):
-            return -1
-        return int(self._lib.can_parser_segmented_open_and_init(
-            str(data_base_path).encode("utf-8"),
-            str(index_base_path).encode("utf-8") if index_base_path else ctypes.c_char_p(b""),
-        ))
-
-    def segmented_perform_all(self, entries: List[ParsedEntry]) -> int:
-        """
-        Write a batch of parsed entries to all segment mmaps.
-        Requires that segmented_open_and_init() was called successfully.
-        Returns 0 on success, negative error code on failure.
-        """
-        if not hasattr(self._lib, "can_parser_segmented_perform_all"):
-            return -1
-        if not entries:
-            return 0
-        # Convert Python list to C array
-        entries_array = (ParsedEntry * len(entries))()
-        for i, entry in enumerate(entries):
-            entries_array[i] = entry
-        return int(self._lib.can_parser_segmented_perform_all(
-            entries_array,
-            ctypes.c_uint32(len(entries)),
-        ))
-
-    def segmented_close_and_finalize(self) -> None:
-        """
-        Close all segment writers and finalize mmap headers.
-        Must be called after recording is complete.
-        """
-        if hasattr(self._lib, "can_parser_segmented_close_and_finalize"):
-            self._lib.can_parser_segmented_close_and_finalize()
-
     def open_monitor(self, data_base_path: str, index_base_path: str = "") -> "CanParserMonitor | None":
         if not hasattr(self._lib, "can_parser_open"):
             return None
@@ -928,3 +865,78 @@ class CanParserMonitor:
 
     def __exit__(self, *_) -> None:
         self.close()
+
+
+class ParsedEntryHandlerClient:
+    """Python wrapper over native ParsedEntryHandler opaque handle."""
+
+    def __init__(self, token_id: str) -> None:
+        self._lib = CanParserLib.get()._lib
+        self._handle = None
+        self._opened = False
+
+        if not hasattr(self._lib, "parsed_entry_handler_create"):
+            raise RuntimeError("Native library does not expose ParsedEntryHandler bridge")
+
+        handle = self._lib.parsed_entry_handler_create(str(token_id).encode("utf-8"))
+        if not handle:
+            raise RuntimeError(f"Failed to create ParsedEntryHandler for token id: {token_id}")
+
+        self._handle = handle
+
+    def open(self) -> None:
+        if self._opened:
+            return
+        self._require_handle()
+        rc = int(self._lib.parsed_entry_handler_open(self._handle))
+        if rc != 0:
+            raise RuntimeError(f"Failed to open segment writers: error code {rc}")
+        self._opened = True
+
+    def write(self, entries: List[ParsedEntry]) -> None:
+        if not entries:
+            return
+        if not self._opened:
+            raise RuntimeError("Segment writers not opened or already closed")
+
+        self._require_handle()
+        arr_type = ParsedEntry * len(entries)
+        arr = arr_type(*entries)
+        rc = int(self._lib.parsed_entry_handler_write(
+            self._handle,
+            ctypes.cast(arr, ctypes.POINTER(ParsedEntry)),
+            ctypes.c_uint32(len(entries)),
+        ))
+        if rc != 0:
+            raise RuntimeError(f"Failed to write entries to segmented mmap: error code {rc}")
+
+    def close(self) -> None:
+        if self._handle is None:
+            return
+
+        if self._opened and hasattr(self._lib, "parsed_entry_handler_close"):
+            rc = int(self._lib.parsed_entry_handler_close(self._handle))
+            if rc != 0:
+                raise RuntimeError(f"Failed to close segment writers: error code {rc}")
+            self._opened = False
+
+        if hasattr(self._lib, "parsed_entry_handler_destroy"):
+            self._lib.parsed_entry_handler_destroy(self._handle)
+        self._handle = None
+
+    def _require_handle(self) -> None:
+        if self._handle is None:
+            raise RuntimeError("ParsedEntryHandler is closed")
+
+    def __enter__(self) -> "ParsedEntryHandlerClient":
+        self.open()
+        return self
+
+    def __exit__(self, *_) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
