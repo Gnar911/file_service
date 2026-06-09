@@ -342,6 +342,8 @@ class FileService(BaseService):
     def on_recorder_callback(self) -> bool:
         recorder_mmap_path = self._active_recording_mmap_path
         recorder_state = RecorderStatus(int(self._recorder_state.value))
+        alive = bool(self._recorder_proc is not None and self._recorder_proc.is_alive())
+
         status = int(recorder_state)
         if status != self._recorder_last_status:
             self._recorder_last_status = status
@@ -356,8 +358,7 @@ class FileService(BaseService):
                 )
             )
 
-        alive = bool(self._recorder_proc is not None and self._recorder_proc.is_alive())
-        if not alive and recorder_state in (RecorderStatus.STOPPED, RecorderStatus.FAILED):
+        if not alive:
             self._worker_alive["recorder"] = False
             self._recorder_proc = None
             self._active_recording_record_id = None

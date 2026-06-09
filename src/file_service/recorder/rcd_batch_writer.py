@@ -5,19 +5,17 @@ from pathlib import Path
 from typing import List
 
 from lw.logger_setup import LOG
+from file_service.module.fs_core import ParsedEntry, ParsedMmapInterface
 from file_service.repository.file_handler.ring_handler import CanLogRingPayload
 
 
 class MmapBatchWriter:
-    def __init__(self, output_mmap_path: str | Path, token_id: str | Path | None = None):
-        self._out = Path(output_mmap_path)
+    def __init__(self, base_path: str | Path):
+        self._out = Path(base_path)
         self._state_path = self._out.parent / f"{self._out.name}.state.json"
         self._out.parent.mkdir(parents=True, exist_ok=True)
 
-        if token_id is None:
-            self._token_id = self._out.with_suffix(".token")
-        else:
-            self._token_id = Path(token_id)
+        self._token_id = Path(base_path)
         
         # Initialise segment writers
         self._frames_written = 0
@@ -25,9 +23,9 @@ class MmapBatchWriter:
         self._opened = False
         self._closed = False
 
-        # Open and initialise segment writers through native ParsedEntryHandler.
-        self._handler = ParsedEntryHandlerClient(str(self._token_id))
-        self._handler.open()
+        # Open and initialise mmap writers through pybind ParsedMmapInterface.
+        self._handler = ParsedMmapInterface(str(self._token_id))
+        self._handler.open_mmap()
         self._opened = True
 
         self._write_state_file()
@@ -68,7 +66,7 @@ class MmapBatchWriter:
             for j in range(64):
                 entry.data[j] = payload.data[j] if j < len(payload.data) else 0
 
-            entry.channel = payload.channel.encode("ascii", errors="ignore")[:16]
+            entry.channel = str(payload.channel)[:16]
             entries.append(entry)
 
         self.write_parsed_entries(entries)
@@ -84,7 +82,7 @@ class MmapBatchWriter:
         if not self._opened or self._closed:
             raise RuntimeError("Segment writers not opened or already closed")
 
-        self._handler.write(entries)
+        self._handler.write_entries(entries)
 
         self._frames_written += len(entries)
         self._batch_write_count += 1
@@ -102,7 +100,7 @@ class MmapBatchWriter:
             return
             
         if self._opened:
-            self._handler.close()
+            self._handler.close_mmap()
             self._closed = True
             self._opened = False
 

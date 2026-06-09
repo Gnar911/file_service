@@ -35,14 +35,14 @@ Doesn't work if another process only knows the shm name.
 """
 def writer_process(
     shm_name: str,
-    output_mmap_path: str,
+    base_path: str,
     stop_event,
     wakeup,
     state,
 ):
     RecorderProcess(
         shm_name=shm_name,
-        output_mmap_path=output_mmap_path,
+        base_path=base_path,
         stop_event=stop_event,
         wakeup=wakeup,
         state=state,

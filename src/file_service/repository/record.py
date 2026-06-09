@@ -48,7 +48,7 @@ class Record:
 
     # Replay-facing accessors so callers do not touch data_handler directly.
     def get_total_lines(self) -> int:
-        return int(self.__prs_data.get_total_entries_num())
+        return int(self.__prs_data.fetch_count())
 
     def get_page_from_row_indices(self, first_line: int, page_size: int) -> List[ParsedEntry]:
         if page_size <= 0:
@@ -130,8 +130,7 @@ class Record:
         raise NotImplementedError("get_end_row_by_can_id_timestamp is not adapted to ParsedMmapInterface yet")
 
     def get_progress_index(self) -> int:
-        progress = self._read_u64(self._status_path(), self._MAIN_PROGRESS_OFFSET, default=0)
-        return max(0, int(progress))
+        return max(0, int(self.__prs_data.fetch_count()))
 
     def get_metadata(self, db_file_path: str | None = None) -> dict[str, Any]:
         raw = self.__prs_data

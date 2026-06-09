@@ -15,13 +15,13 @@ class RecorderProcess:
     def __init__(
         self,
         shm_name: str,
-        output_mmap_path: str,
+        base_path: str,
         stop_event: Any,
         wakeup,
         state,
     ):
         self._shm_name = shm_name
-        self._output_mmap_path = output_mmap_path
+        self._base_path = base_path
         self._stop_event = stop_event
         self._wakeup = wakeup
         self._state = state
@@ -35,8 +35,8 @@ class RecorderProcess:
     def run(self) -> None:
         _set_linux_process_name("CBCM-writer")
         self._ring = SharedMemoryRingReader(self._shm_name)
-        self._writer = MmapBatchWriter(self._output_mmap_path)
-        current_status = int(RecorderStatus.IDLE)
+        self._writer = MmapBatchWriter(self._base_path)
+        current_status = int(RecorderStatus.WAIT_RING)
         self._set_status(current_status)
         last_write_idx = int(self._ring.write_idx)
 
@@ -45,8 +45,8 @@ class RecorderProcess:
         try:
             while not self._stop_event.is_set():
                 current_write_idx = int(self._ring.write_idx)
-                if current_write_idx == last_write_idx and current_status != int(RecorderStatus.IDLE):
-                    current_status = int(RecorderStatus.PAUSED)
+                if current_write_idx == last_write_idx and current_status != int(RecorderStatus.WAIT_RING):
+                    current_status = int(RecorderStatus.WAIT_RING)
                     self._set_status(current_status)
 
                 available = self._ring.available
@@ -77,8 +77,6 @@ class RecorderProcess:
             bytes_written = self.bytes_written
             if had_error:
                 self._set_status(int(RecorderStatus.FAILED))
-            else:
-                self._set_status(int(RecorderStatus.STOPPED))
             self._close()
             LOG.debug("[WRITER] Exiting — wrote %d frames (%d bytes).", frames_written, bytes_written)
 
@@ -104,9 +102,9 @@ class RecorderProcess:
 
         self._writer.write(self._ring.read_batch(batch_count))
 
-        if int(current_status) != int(RecorderStatus.RECORDING):
-            self._set_status(int(RecorderStatus.RECORDING))
-            current_status = int(RecorderStatus.RECORDING)
+        if int(current_status) != int(RecorderStatus.WRITE_BATCH):
+            self._set_status(int(RecorderStatus.WRITE_BATCH))
+            current_status = int(RecorderStatus.WRITE_BATCH)
 
         return int(current_status)
 

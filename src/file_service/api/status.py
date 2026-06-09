@@ -5,9 +5,9 @@ from enum import IntEnum
 
 class RecorderStatus(IntEnum):
     IDLE = 0
-    RECORDING = 1
+    WRITE_BATCH = 1
     PAUSED = 2
-    STOPPED = 3
+    WAIT_RING = 3
     FAILED = 4
 
 
