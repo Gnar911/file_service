@@ -15,7 +15,6 @@ from file_service.api.application_events import (
 )
 from file_service.api.status import RecorderStatus
 from file_service.record_id import RecordId
-from file_service.parser.native.can_parser_api import MmapHeaderConstract
 from file_service.api.srv_if import FileService, get_file_service
 from file_service.repository.file_handler.ring_handler import CAPACITY, CanLogRingHandler, CanLogRingPayload
 from lw.base_service import ServiceState

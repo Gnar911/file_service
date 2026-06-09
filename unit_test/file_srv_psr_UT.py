@@ -18,13 +18,30 @@ from file_service.record_id import RecordId
 from file_service.api.srv_if import FileService, get_file_service
 from file_service.api.status import ParserStatus
 from lw.base_service import ServiceState
+from lw.logger_setup import setup_logger
 from lw.logger_setup import LOG
-from file_service.module.parsed_mmap import ParsedEntry
+from file_service.module.fs_core import ParsedEntry
 
 TIMEOUT = 0.8
 PARSE_TIMEOUT = 15.0
 POLL_INTERVAL = 0.1
 _SERVICE_START_TIMEOUT = 5.0
+
+def _run_segment_discovery(token_path: str) -> None:
+    tests_bin = (
+        Path(__file__).resolve().parents[2]
+        / "file_srv_core"
+        / "src"
+        / "build"
+        / "file_service_core_tests"
+    )
+    subprocess.check_call(
+        [
+            str(tests_bin),
+            "--gtest_filter=ParsedMmapInterfaceApi.SegmentDiscovery",
+            f"--token_path={token_path}",
+        ]
+    )
 
 @pytest.fixture(scope="session")
 def qt_app():
@@ -35,6 +52,7 @@ def qt_app():
 
 @pytest.fixture(scope="session")
 def file_service(qt_app) -> "Generator[FileService, None, None]":
+    setup_logger(env="DEV", backup_count=30)
     file_srv = get_file_service()
     if file_srv.get_service_state() == ServiceState.RUNNING:
         yield file_srv
@@ -47,6 +65,7 @@ def file_service(qt_app) -> "Generator[FileService, None, None]":
     file_srv.start()
     assert running_event.wait(timeout=_SERVICE_START_TIMEOUT), "FileService did not reach RUNNING state"
     yield file_srv
+
     stopped_event = threading.Event()
     file_srv.subscribe(
         FileServiceStateEvent,
@@ -109,21 +128,6 @@ def test_05_parse_log_with_record_id(file_service: FileService, qt_app, file_pat
     record = file_srv.get_record(record_id)
     assert record is not None
 
-    tests_bin = (
-        Path(__file__).resolve().parents[2]
-        / "file_srv_core"
-        / "src"
-        / "build"
-        / "file_service_core_tests"
-    )
-    subprocess.check_call(
-        [
-            str(tests_bin),
-            "--gtest_filter=ParsedMmapInterfaceApi.SegmentDiscovery",
-            f"--token_path={record.get_base_path()}",
-        ]
-    )
-
     assert len(file_srv.list_log_records()) == record_count_before
     status_code, first_entries = record.get_page_from_row_indices_with_status(0, 10)
     print("read_page_status_code:", status_code)
@@ -133,6 +137,7 @@ def test_05_parse_log_with_record_id(file_service: FileService, qt_app, file_pat
     assert len(first_entries) <= 10
     assert all(isinstance(entry, ParsedEntry) for entry in first_entries)
     print("record_data_size:", record.get_total_lines())
+    _run_segment_discovery(str(record.get_base_path()))
     print("first_entries_fields:")
     for entry in first_entries:
         print(
@@ -165,14 +170,16 @@ def test_40_parse_line(
     expected_hex_data: str,
 ) -> None:
     parsed = file_service.parse_line(text_line)
+    parsed_hex_data = " ".join(f"{int(parsed.data[i]):02X}" for i in range(int(parsed.data_len)))
+    parsed_direction = "Tx" if int(parsed.direction) == 1 else "Rx"
 
     assert isinstance(parsed, ParsedEntry)
     assert int(parsed.line_number) == 1
     assert int(parsed.can_id) == expected_can_id
-    assert parsed.channel_str == expected_channel
+    assert str(parsed.channel) == expected_channel
     assert int(parsed.data_len) == expected_data_len
-    assert parsed.direction_str == expected_direction
-    assert parsed.hex_data == expected_hex_data
+    assert parsed_direction == expected_direction
+    assert parsed_hex_data == expected_hex_data
 
 
 @pytest.mark.parametrize(
@@ -198,14 +205,20 @@ def test_41_parse_lines(
     expected_hex_data: list[str],
 ) -> None:
     parsed_lines = file_service.parse_lines(text_lines)
+    parsed_channels = [str(item.channel) for item in parsed_lines]
+    parsed_directions = ["Tx" if int(item.direction) == 1 else "Rx" for item in parsed_lines]
+    parsed_hex_data_values = [
+        " ".join(f"{int(item.data[i]):02X}" for i in range(int(item.data_len)))
+        for item in parsed_lines
+    ]
 
     assert len(parsed_lines) == len(expected_can_ids)
     assert [int(item.line_number) for item in parsed_lines] == [1, 2]
     assert [int(item.can_id) for item in parsed_lines] == expected_can_ids
-    assert [item.channel_str for item in parsed_lines] == expected_channels
+    assert parsed_channels == expected_channels
     assert [int(item.data_len) for item in parsed_lines] == expected_data_lens
-    assert [item.direction_str for item in parsed_lines] == expected_directions
-    assert [item.hex_data for item in parsed_lines] == expected_hex_data
+    assert parsed_directions == expected_directions
+    assert parsed_hex_data_values == expected_hex_data
 
 
 @pytest.mark.parametrize(
@@ -252,8 +265,8 @@ def test_06_parse_log_without_record_id(file_service: FileService, qt_app, file_
     assert len(file_srv.list_log_records()) == len(record_ids_before) + 1
     record = file_srv.get_record(parsed_record_id)
     assert record is not None
-    runtime_paths = record.get_runtime_mmap_paths()
-    print("runtime_mmap_paths:", runtime_paths["data"], runtime_paths["index"])
+    token_path = str(record.get_base_path())
+    _run_segment_discovery(token_path)
 
 
 @pytest.mark.parametrize(
@@ -409,6 +422,7 @@ def test_09_parse_log_then_dbc_same_record(file_service: FileService, qt_app, fi
     record = file_srv.get_record(parsed_record_id)
     assert record is not None
     pkl_path = record.get_dbc_pkl_path()
+    _run_segment_discovery(str(record.get_base_path()))
     print("test_09 record_id:", parsed_record_id)
     print("test_09 dbc_pkl_path:", pkl_path)
     assert pkl_path.exists()
@@ -482,11 +496,9 @@ def test_10_parse_dbc_then_log_same_record(file_service: FileService, qt_app, fi
     assert record is not None
     pkl_path = record.get_dbc_pkl_path()
     print("test_10 record_id:", dbc_record_id)
-    runtime_paths = record.get_runtime_mmap_paths()
-    print("test_10 runtime_mmap_paths:", runtime_paths["data"], runtime_paths["index"])
     print("test_10 dbc_pkl_path:", pkl_path)
+    _run_segment_discovery(str(record.get_base_path()))
     assert pkl_path.exists()
-    assert record.has_runtime_mmaps()
 
 @pytest.mark.parametrize(
     "file_path, db_file_path",
@@ -550,6 +562,6 @@ def test_16_parse_dbc_then_parse_log(file_service: FileService, qt_app, file_pat
 
     record = file_srv.get_record(dbc_record_id)
     assert record is not None
+    _run_segment_discovery(str(record.get_base_path()))
     print("test_16 record_id:", dbc_record_id)
-    print("test_16 parse_mmap:", record.get_runtime_mmap_paths())
     print("test_16 dbc_pkl_path:", record.get_dbc_pkl_path())

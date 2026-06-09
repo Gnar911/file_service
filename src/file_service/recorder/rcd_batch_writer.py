@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import List
 
 from lw.logger_setup import LOG
-from file_service.parser.native.can_parser_api import ParsedEntry, ParsedEntryHandlerClient
 from file_service.repository.file_handler.ring_handler import CanLogRingPayload
 
 

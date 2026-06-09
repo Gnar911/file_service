@@ -5,18 +5,15 @@ import shutil
 from typing import Any, List, Optional, Tuple
 
 from file_service.define import MMAP_LOCAL_STORAGE_DIR, MMAP_TEMP_STORAGE_DIR
-from file_service.module.parsed_mmap import ParsedEntry, ParsedMmapInterface
+from file_service.module.fs_core import ParsedEntry, ParsedMmapInterface
 from file_service.repository.file_handler.decode_mmap_handler import CANLogDecodedDiskFile
 from file_service.repository.file_handler.dbc_pkl_handler import DBCPklHandler
 from lw.logger_setup import LOG
-from file_service.parser.native.can_parser_api import MmapHeaderConstract
 
 from file_service.record_id import RecordId
 
 
 class Record:
-    _MAIN_PROGRESS_OFFSET = MmapHeaderConstract.WRITE_COUNT_OFFSET
-
     def __init__(self, record_id: RecordId, base_dir: str | Path, base_name: str):
         if not str(base_dir):
             raise ValueError("base_dir is required")

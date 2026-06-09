@@ -8,18 +8,12 @@ from typing import Any, Optional, Dict, Sequence
 from pathlib import Path
 from enum import Enum, auto
 from dataclasses import dataclass
-from ..repository.can_decode_repository import CANDecodeRepository
 from ..repository.record_repository import CANLogRepository, MMAP_DIR
 from lw.logger_setup import LOG
 from lw.observer import ObservableEvent
 from can_sdk.dbc_manager import CANDBInfo
 from can_sdk.data_object import SignalFilter, CANLogDecodedDiskFile, CANLogRawDiskFile
-from file_service.decode.native.can_decoder_api import (
-    DecodeDB,
-    RowIndexMmap, ValueMmap, RawValueMmap,
-    CanDecoderLib, estimate_sample_count,
-)
-from file_service.parser.native.can_parser_api import MmapData, IndexMmapData
+
 
 MMAP_DUMP_PATH = MMAP_DIR
 _DBC_PKL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dumps", "dbc_pkl")

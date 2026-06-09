@@ -1,9 +1,8 @@
-from file_service.parser.native.can_parser_api import CanParserLib as _CanParserLib
+from file_service.module.fs_core import *
 from lw.logger_setup import LOG
 
 ### RUN on child process, binding class for native C++ parser
 class NativeParser:
-    _lib = _CanParserLib.get()._lib
     file_path: str
 
     @classmethod
@@ -20,19 +19,14 @@ class NativeParser:
         if fmt is None:
             LOG.warning("No parser detected for file format")
             return False
-        
+
         try:
-            _lib = _CanParserLib.get()._lib
-            rc = _lib.can_parser_run_worker_segmented(
-                file_path.encode("utf-8"),
-                token_id.encode("utf-8"),
-                fmt,
-            )
+            rc = run_worker_segmented(file_path, str(token_id), int(fmt))
             return rc == 0
         except Exception as error:
             LOG.error(f"C++ segmented run failed: {error}")
             return False
-        
+
     @classmethod
     def parse(cls, file_path: str, token_id: str) -> bool:
         return cls.run_native_to_mmap(file_path, str(token_id))

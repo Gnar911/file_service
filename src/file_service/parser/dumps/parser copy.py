@@ -9,7 +9,7 @@ from can import ASCReader, LogReader, BLFReader
 import os
 from pathlib import Path
 from typing import Any, Final
-from native_sdk.can_parser_api import CanParserLib as _CanParserLib  # type: ignore[import-not-found]
+from file_service.parser.native.native_bridge import CanParserLib as _CanParserLib  # type: ignore[import-not-found]
 from native_sdk._loader import load_library  # type: ignore[import-not-found]
 
 PAGE_SIZE          = 10_000
@@ -236,7 +236,7 @@ class LogParser():
         """Read first lines, detect format, tokenize first matched line,
         and return a FieldLayout struct with exact token positions.
         Returns FieldLayout or None."""
-        from native_sdk.can_parser_api import FieldLayout, FL_TS_IS_MS, FL_DLC_IS_HEX, FL_IS_TAB
+        from file_service.parser.native.native_bridge import FieldLayout, FL_TS_IS_MS, FL_DLC_IS_HEX, FL_IS_TAB
 
         VALID_DLC = frozenset({0,1,2,3,4,5,6,7,8,12,16,20,24,32,48,64})
         _HEX = frozenset('0123456789abcdefABCDEF')
@@ -1296,7 +1296,7 @@ def main():
     ################## 20260305: TEST CASE READ TIMEDIFF OF A CAN_ID ##########################
     target_can_id = 0x215
     try:
-        from native_sdk.can_parser_api import MmapData  # type: ignore[import-not-found]
+        from file_service.parser.native.native_bridge import MmapData  # type: ignore[import-not-found]
 
         data_files = sorted(mmap_dir.glob(f"{Path(FILELOG).name}.data.*.mmap"))
         data_files = [p for p in data_files if p.stat().st_mtime >= run_start_mtime]

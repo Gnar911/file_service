@@ -30,8 +30,7 @@ class FormatDetector:
         return None
 
     def _detect_field_layout(self, file_path: str):
-        from file_service.parser.native.can_parser_api import FieldLayout, FL_DLC_IS_HEX, FL_IS_TAB, FL_TS_IS_MS
-
+        from file_service.data.can_parser_api import FieldLayout, FL_DLC_IS_HEX, FL_IS_TAB, FL_TS_IS_MS
         valid_dlc = frozenset({0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64})
         hex_chars = frozenset("0123456789abcdefABCDEF")
 

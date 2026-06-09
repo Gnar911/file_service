@@ -8,7 +8,6 @@ from typing import Any
 
 from file_service.api.application_events import (
     DBCLoadedEvent,
-    DecodeCompletedEvent,
     DecodeStatusEvent,
     DecodeStartedEvent,
     DecoderStatusEvent,
@@ -21,7 +20,7 @@ from file_service.decode.dbc_manager import CANDBManager
 from file_service.dispatcher.event_dispatcher import FileServiceDispatcher
 from file_service.exporter.can_log_export import CANLogExport
 from file_service.parser.parser_process import run_parser_async
-from file_service.parser.native.can_parser_api import CanParserLib, ParsedEntry
+from file_service.module.fs_core import ParsedEntry, parse_line as fs_core_parse_line
 from file_service.parser.python.py_parser import LogParser
 from file_service.api.status import RecorderStatus, ParserStatus, DecodeStatus
 from file_service.repository.record import Record
@@ -60,7 +59,6 @@ class FileService(BaseService):
         self._log_verification = CANLogVerification()
         self._log_export = CANLogExport(self._log_repository)
         self._dispatcher = FileServiceDispatcher()
-        self._line_parser = CanParserLib()
 
     def _do_start(self) -> None:
         self._recorder_stop.clear()
@@ -94,20 +92,12 @@ class FileService(BaseService):
         if record is None:
             return False
 
-        if not record.has_runtime_mmaps():
-            return False
-
-        runtime_paths = record.get_runtime_mmap_paths()
-        data_paths = runtime_paths.get("data", [])
-        if not data_paths:
-            return False
-
         dbc_pkl_path = str(record.get_dbc_pkl_path())
-        record_mmap_path = self._log_repository.get_mmap_path(record_id)
+        record_path_token = self._log_repository.get_mmap_path(record_id)
 
         return self._start_decode_job(
             record_id,
-            record_mmap_path,
+            record_path_token,
             normalized_db_file_path,
             dbc_pkl_path,
         )
@@ -206,7 +196,7 @@ class FileService(BaseService):
         return False
 
     def parse_line(self, text_l: str) -> ParsedEntry:
-        parsed = self._line_parser.parse_line(str(text_l or ""), 1)
+        parsed = fs_core_parse_line(str(text_l or ""), 1)
         if parsed is None:
             raise ValueError("Failed to parse CAN log line")
         return parsed
@@ -216,7 +206,7 @@ class FileService(BaseService):
         for line_number, line in enumerate(str(text_l or "").splitlines(), start=1):
             if not line.strip():
                 continue
-            parsed = self._line_parser.parse_line(line, line_number)
+            parsed = fs_core_parse_line(line, line_number)
             if parsed is not None:
                 parsed_lines.append(parsed)
         return parsed_lines
@@ -318,37 +308,17 @@ class FileService(BaseService):
     def _start_decode_job(
         self,
         record_id: RecordId,
-        record_mmap_path: Path,
+        record_path_token: Path,
         db_file_path: str,
         dbc_pkl_path: str,
     ) -> bool:
         wakeup = self._dispatcher.create_worker_wakeup()
         self._active_decode_record_id = record_id
         self._active_decode_db_file_path = db_file_path
-        self._active_decode_file_path = str(record_mmap_path)
-        proc = run_decode_async(record_mmap_path, db_file_path, wakeup, dbc_pkl_path, self._decoder_state)
+        self._active_decode_file_path = str(record_path_token)
+        proc = run_decode_async(record_path_token, db_file_path, wakeup, dbc_pkl_path, self._decoder_state)
 
-        self._dispatcher.dispatch_event(
-            DecodeStartedEvent(
-                record_id=self._active_decode_record_id,
-                file_path=self._active_decode_file_path,
-                db_file_path=self._active_decode_db_file_path,
-                expected_samples=0,
-            )
-        )
-        self._dispatcher.dispatch_event(
-            DecodeStatusEvent(
-                record_id=self._active_decode_record_id,
-                status=DecodeStatus.RUNNING,
-                kind="status",
-                payload={
-                    "record_id": self._active_decode_record_id,
-                    "status": int(DecodeStatus.RUNNING),
-                    "file_path": self._active_decode_file_path,
-                    "db_file_path": self._active_decode_db_file_path,
-                },
-            )
-        )
+
         self._dispatcher.register_decoder_worker(
             file_path=self._active_decode_file_path,
             wakeup=wakeup,
@@ -441,10 +411,24 @@ class FileService(BaseService):
 
 
         worker_state = DecodeStatus(int(self._decoder_state.value))
+        if worker_state in (DecodeStatus.IDLE, DecodeStatus.RUNNING):
+            self._dispatcher.dispatch_event(
+                DecodeStatusEvent(
+                    record_id=record_id,
+                    status=DecodeStatus.RUNNING,
+                    kind="status",
+                    payload={
+                        "record_id": record_id,
+                        "status": int(DecodeStatus.RUNNING),
+                        "file_path": file_path,
+                        "db_file_path": db_file_path,
+                        "worker_state": int(self._decoder_state.value),
+                    },
+                )
+            )
+            return False
 
-        status = int(worker_state)
-
-        if worker_state != DecodeStatus.DONE:
+        if worker_state == DecodeStatus.FAILED:
             self._log_repository.mark_failed(record_id)
             self._dispatcher.dispatch_event(
                 DecodeStatusEvent(
@@ -476,13 +460,25 @@ class FileService(BaseService):
             _reset_decode_state()
             return True
 
-        self._dispatcher.dispatch_event(
-            DecodeCompletedEvent(
-                record_id=record_id,
-                file_path=file_path,
-                db_file_path=db_file_path,
+        if worker_state != DecodeStatus.DONE:
+            self._dispatcher.dispatch_event(
+                DecodeStatusEvent(
+                    record_id=record_id,
+                    status=DecodeStatus.FAILED,
+                    kind="status",
+                    payload={
+                        "record_id": record_id,
+                        "status": int(DecodeStatus.FAILED),
+                        "file_path": file_path,
+                        "db_file_path": db_file_path,
+                        "reason": "decode_worker_unknown_state",
+                        "worker_state": int(self._decoder_state.value),
+                    },
+                )
             )
-        )
+            _reset_decode_state()
+            return True
+
         self._dispatcher.dispatch_event(
             DecodeStatusEvent(
                 record_id=record_id,
@@ -508,7 +504,5 @@ class FileService(BaseService):
             )
         )
 
-        _reset_decode_state()
-        return True
         _reset_decode_state()
         return True

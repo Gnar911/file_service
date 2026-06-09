@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from file_service.define import MMAP_TEMP_STORAGE_DIR
-from file_service.parser.native.can_parser_api import MmapHeaderConstract
 from file_service.record_id import RecordId
 from file_service.repository.record import Record
 

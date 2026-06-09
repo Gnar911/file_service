@@ -3,7 +3,6 @@ import multiprocessing as mp
 from lw.platform.linux_platform import _set_linux_process_name
 from file_service.dispatcher.qt_object import IPCWakeup
 from file_service.parser.native.native_parser import NativeParser
-from file_service.parser.native.can_parser_api import MmapHeaderConstract
 from lw.logger_setup import LOG
 from file_service.api.status import ParserStatus
 
@@ -30,7 +29,6 @@ def run_parser_async(
 
 def run_parse(file_path: str, token_id: str, wakeup: IPCWakeup, state) -> None:
     _set_linux_process_name("CBCM-parser")
-    MmapHeaderConstract.load_from_native_binding()
     try:
         state.value = int(ParserStatus.RUNNING)
         rc = NativeParser.parse(file_path, token_id)

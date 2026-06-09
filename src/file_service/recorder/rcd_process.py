@@ -7,7 +7,6 @@ from lw.logger_setup import LOG
 from lw.platform.linux_platform import _set_linux_process_name
 from file_service.repository.file_handler.ring_handler import BATCH_SIZE
 from file_service.recorder.rcd_batch_writer import MmapBatchWriter
-from file_service.parser.native.can_parser_api import MmapHeaderConstract
 from file_service.api.status import RecorderStatus
 from file_service.recorder.rcd_ring_reader import SharedMemoryRingReader
 
@@ -35,8 +34,6 @@ class RecorderProcess:
 
     def run(self) -> None:
         _set_linux_process_name("CBCM-writer")
-        MmapHeaderConstract.load_from_native_binding()
-
         self._ring = SharedMemoryRingReader(self._shm_name)
         self._writer = MmapBatchWriter(self._output_mmap_path)
         current_status = int(RecorderStatus.IDLE)

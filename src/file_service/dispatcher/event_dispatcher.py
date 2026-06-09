@@ -21,7 +21,7 @@ from ..api.application_events import (
     RecorderStatusEvent,
 )
 
-from file_service.parser.native.can_parser_api import (
+from file_service.data.can_parser_api import (
     PARSER_STATUS_DONE,
     PARSER_STATUS_ERROR,
     PARSER_STATUS_RUNNING,

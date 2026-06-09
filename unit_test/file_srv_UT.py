@@ -20,7 +20,6 @@ from file_service.record_id import RecordId
 from file_service.api.srv_if import FileService, get_file_service
 from lw.base_service import ServiceState
 from lw.define import CAN_SHARED_RING_SHM_NAME
-from file_service.parser.native.can_parser_api import DATA_STATUS_DONE, ParsedEntry
 
 TIMEOUT = 0.8
 PARSE_TIMEOUT = 15.0

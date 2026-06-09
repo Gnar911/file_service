@@ -8,3 +8,5 @@ src/file_service/parser/dumps/mmap/
 *.mmap
 /build/
 src/file_service/cpp/build/
+/logs/
+*.so
