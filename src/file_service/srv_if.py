@@ -3,12 +3,12 @@ from __future__ import annotations
 from abc import ABCMeta
 from typing import Any, Callable, Type
 
-from lw.base_service import ServiceState
+from lw.service.base_service import ServiceState
 from lw.singleton import SingletonMeta
 
-from ..file_service import FileService as _FileServiceImpl
-from ..repository.record import Record
-from ..record_id import RecordId
+from .file_service import FileService as _FileServiceImpl
+from .repository.record import Record
+from .record_id import RecordId
 from file_service.module import ParsedEntry
 
 class FileService:

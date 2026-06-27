@@ -7,7 +7,7 @@ from lw.logger_setup import LOG
 from lw.platform.linux_platform import _set_linux_process_name
 from file_service.repository.file_handler.ring_handler import BATCH_SIZE
 from file_service.recorder.rcd_batch_writer import MmapBatchWriter
-from file_service.api.status import RecorderStatus
+from file_service.status import RecorderStatus
 from file_service.recorder.rcd_ring_reader import SharedMemoryRingReader
 
 
@@ -40,7 +40,6 @@ class RecorderProcess:
         self._set_status(current_status)
         last_write_idx = int(self._ring.write_idx)
 
-        had_error = False
         last_flush_t = time.perf_counter()
         try:
             while not self._stop_event.is_set():
@@ -68,17 +67,15 @@ class RecorderProcess:
             remaining = self._ring.available
             if remaining > 0:
                 current_status = self._write_batch(remaining, current_status)
+            self._set_status(int(RecorderStatus.STOPPED))
 
         except Exception:
             LOG.exception("[WRITER] Fatal exception in writer process")
-            had_error = True
-        finally:
-            frames_written = self.frames_written
-            bytes_written = self.bytes_written
-            if had_error:
-                self._set_status(int(RecorderStatus.FAILED))
-            self._close()
-            LOG.debug("[WRITER] Exiting — wrote %d frames (%d bytes).", frames_written, bytes_written)
+
+        frames_written = self.frames_written
+        bytes_written = self.bytes_written
+        self._close()
+        LOG.debug("[WRITER] Exiting — wrote %d frames (%d bytes).", frames_written, bytes_written)
 
     @property
     def frames_written(self) -> int:

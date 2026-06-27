@@ -63,8 +63,11 @@ class MmapBatchWriter:
             entry.data_len = max(0, min(int(payload.data_len), 64))
             entry.changed = 0
 
-            for j in range(64):
-                entry.data[j] = payload.data[j] if j < len(payload.data) else 0
+            # #BUG: pybind11 ParsedEntry.data property ONLY accepts whole-vector assignment.
+            # Trying to index individual bytes like entry.data[j] = ... silently fails.
+            # Must assign the entire 64-byte array at once via property setter.
+            data_list = list(payload.data) + [0] * (64 - len(payload.data))
+            entry.data = data_list[:64]
 
             entry.channel = str(payload.channel)[:16]
             entries.append(entry)
@@ -82,7 +85,12 @@ class MmapBatchWriter:
         if not self._opened or self._closed:
             raise RuntimeError("Segment writers not opened or already closed")
 
-        self._handler.write_entries(entries)
+        # write_entries() returns int32_t error code from C++
+        write_error_code = int(self._handler.write_entries(entries))
+        if write_error_code != 0:
+            error_msg = f"ParsedMmapInterface::write_entries failed with error code {write_error_code}"
+            LOG.error("[RECORDER][MMAP] %s", error_msg)
+            raise RuntimeError(error_msg)
 
         self._frames_written += len(entries)
         self._batch_write_count += 1

@@ -6,7 +6,7 @@ from os.path import isfile
 from pathlib import Path
 from typing import Any
 
-from file_service.api.application_events import (
+from file_service.application_events import (
     DBCLoadedEvent,
     DecodeStatusEvent,
     DecodeStartedEvent,
@@ -17,18 +17,18 @@ from file_service.api.application_events import (
 )
 from file_service.decode.decode_process import run_decode_async
 from file_service.decode.dbc_manager import CANDBManager
-from file_service.dispatcher.event_dispatcher import FileServiceDispatcher
+from file_service.event_dispatcher import FileServiceDispatcher
 from file_service.exporter.can_log_export import CANLogExport
 from file_service.parser.parser_process import run_parser_async
 from file_service.module.fs_core import ParsedEntry, parse_line as fs_core_parse_line
 from file_service.parser.python.py_parser import LogParser
-from file_service.api.status import RecorderStatus, ParserStatus, DecodeStatus
+from file_service.status import RecorderStatus, ParserStatus, DecodeStatus
 from file_service.repository.record import Record
 from file_service.record_id import RecordId
 from file_service.recorder.buses_traffic_recorder import writer_process
 from file_service.repository.record_repository import RecordRepository
-from file_service.verification.can_log_verification import CANLogVerification
-from lw.base_service import BaseService, ServiceState
+from file_service.can_log_verification import CANLogVerification
+from lw.service.base_service import BaseService, ServiceState
 from lw.define import CAN_SHARED_RING_SHM_NAME
 from lw.logger_setup import LOG
 from can_sdk.data_object import CANDBInfo
@@ -44,7 +44,7 @@ class FileService(BaseService):
         self._active_recording_record_id: RecordId | None = None
         self._active_recording_mmap_path: str | None = None
         self._worker_alive: dict[str, bool] = {}
-        self._recorder_state = mp.Value("i", int(RecorderStatus.IDLE))
+        self._recorder_state = mp.Value("i", int(RecorderStatus.STOPPED))
         self._parser_state = mp.Value("i", int(ParserStatus.IDLE))
         self._decoder_state = mp.Value("i", int(DecodeStatus.IDLE))
         self._active_parse_record_id: RecordId | None = None
@@ -162,6 +162,9 @@ class FileService(BaseService):
             self._worker_alive["recorder"] = alive
             if not alive:
                 self._recorder_proc = None
+        if self._recorder_proc is None:
+            self._recorder_state.value = int(RecorderStatus.STOPPED)
+            self.on_recorder_callback()
 
     def save_record(self, record_id: RecordId) -> bool:
         return self._log_repository.save_record(record_id)

@@ -5,7 +5,7 @@ import time
 from typing import Any
 
 from can_sdk.data_object import CANDBInfo
-from ..record_id import RecordId
+from .record_id import RecordId
 from .status import RecorderStatus, ParserStatus, DecodeStatus
 
 
@@ -102,5 +102,5 @@ class FileWorkerRawStatusEvent(FileDomainEvent):
 
 @dataclass(slots=True)
 class RecorderStatusEvent(FileDomainEvent):
-    status: RecorderStatus = RecorderStatus.IDLE
+    status: RecorderStatus = RecorderStatus.STOPPED
     payload: dict[str, Any] = field(default_factory=dict)

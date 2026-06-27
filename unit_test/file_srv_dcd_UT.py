@@ -9,17 +9,17 @@ from typing import Generator
 import pytest
 from PySide6.QtCore import QCoreApplication
 
-from file_service.api.application_events import (
+from file_service.application_events import (
     DBCLoadedEvent,
     DecodeStatusEvent,
     FileServiceStateEvent,
     ParserStatusEvent,
 )
-from file_service.api.srv_if import FileService, get_file_service
-from file_service.api.status import ParserStatus
-from file_service.api.status import DecodeStatus
+from file_service.srv_if import FileService, get_file_service
+from file_service.status import ParserStatus
+from file_service.status import DecodeStatus
 from file_service.record_id import RecordId
-from lw.base_service import ServiceState
+from lw.service.base_service import ServiceState
 from lw.logger_setup import setup_logger
 
 PARSE_TIMEOUT = 15.0

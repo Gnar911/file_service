@@ -1,10 +1,10 @@
 import multiprocessing as mp
 
 from lw.platform.linux_platform import _set_linux_process_name
-from file_service.dispatcher.qt_object import IPCWakeup
+from file_service.qt_object import IPCWakeup
 from file_service.parser.native.native_parser import NativeParser
 from lw.logger_setup import LOG
-from file_service.api.status import ParserStatus
+from file_service.status import ParserStatus
 
 def run_parser_async(
     file_path: str,

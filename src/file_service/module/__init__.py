@@ -1,7 +1,6 @@
 from .fs_core import (
     CanDecoder,
     DecodedSignal,
-    DecodeError,
     MessageDef,
     ParsedEntry,
     ParsedMmapInterface,
@@ -21,7 +20,6 @@ if _loaded_abi != EXPECTED_CORE_ABI_VERSION:
 __all__ = [
     "CanDecoder",
     "DecodedSignal",
-    "DecodeError",
     "MessageDef",
     "ParsedEntry",
     "ParsedMmapInterface",

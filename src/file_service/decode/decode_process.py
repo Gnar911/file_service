@@ -5,9 +5,9 @@ import multiprocessing as mp
 from pathlib import Path
 
 from file_service.decode.decode_source import decode_process
-from file_service.dispatcher.qt_object import IPCWakeup
+from file_service.qt_object import IPCWakeup
 from lw.logger_setup import LOG
-from file_service.api.status import DecodeStatus
+from file_service.status import DecodeStatus
 
 
 def run_decode_async(

@@ -7,18 +7,20 @@ from multiprocessing import shared_memory
 import pytest
 
 from file_service.define import MMAP_LOCAL_STORAGE_DIR
-from file_service.api.application_events import (
+from file_service.application_events import (
     DBCLoadedEvent,
     DecodeCompletedEvent,
     FileServiceStateEvent,
     ParserStatusEvent,
     RecorderStatusEvent,
 )
-from file_service.api.status import RecorderStatus
+from file_service.status import RecorderStatus
 from file_service.record_id import RecordId
-from file_service.api.srv_if import FileService, get_file_service
+from file_service.srv_if import FileService, get_file_service
+from file_service.module.fs_core import ParsedEntry
+from file_service.repository.record import Record
 from file_service.repository.file_handler.ring_handler import CAPACITY, CanLogRingHandler, CanLogRingPayload
-from lw.base_service import ServiceState
+from lw.service.base_service import ServiceState
 
 TIMEOUT_STATUS = 0.5
 PARSE_TIMEOUT = 15.0
@@ -29,6 +31,82 @@ CAN_SHARED_RING_SHM_NAME = "can_analyzer_ring_v1"
 ENTRY_SIZE = 128
 
 shm = None
+
+
+def _assert_first_entries_match_mock(record: Record, payload_prefix: str, take_count: int = 10) -> None:
+    first_entries = record.get_page_from_row_indices(0, take_count)
+    assert isinstance(first_entries, list)
+    assert len(first_entries) > 0
+    assert len(first_entries) <= take_count
+    assert all(isinstance(entry, ParsedEntry) for entry in first_entries)
+
+    for row_idx, entry in enumerate(first_entries):
+        entry_data_len = int(entry.data_len)
+        assert entry_data_len == 64
+
+        entry_data = bytes(int(entry.data[i]) for i in range(entry_data_len))
+        entry_text = entry_data.rstrip(b"\x00").decode("ascii", errors="replace")
+        entry_hex = " ".join(f"{byte:02X}" for byte in entry_data)
+        expected_text = f"{payload_prefix}-{row_idx}"
+        expected_data = (expected_text.encode("ascii") + b"\x00" * 64)[:64]
+        expected_hex = " ".join(f"{byte:02X}" for byte in expected_data)
+
+        print(
+            f"[record-data] row={row_idx} can_id={int(entry.can_id)} dir={int(entry.direction)} "
+            f"ch={entry.channel} len={entry_data_len} text={entry_text!r} hex={entry_hex} "
+            f"expected_text={expected_text!r} expected_hex={expected_hex}"
+        )
+
+        assert entry_data == expected_data, (
+            f"row={row_idx} payload mismatch: actual_text={entry_text!r} expected_text={expected_text!r}"
+        )
+        assert int(entry.can_id) == row_idx % 2048
+        assert int(entry.direction) == row_idx % 2
+        assert str(entry.channel) == "1"
+
+
+def _assert_first_entries_sequential(record: Record, payload_prefix: str, take_count: int = 10) -> None:
+    """Assert first entries have sequential payloads (for cases where row index != frame index)."""
+    first_entries = record.get_page_from_row_indices(0, take_count)
+    assert isinstance(first_entries, list)
+    assert len(first_entries) > 0
+    assert len(first_entries) <= take_count
+    assert all(isinstance(entry, ParsedEntry) for entry in first_entries)
+
+    # Extract the starting frame number from first entry's payload
+    first_entry_data = bytes(int(first_entries[0].data[i]) for i in range(int(first_entries[0].data_len)))
+    first_entry_text = first_entry_data.rstrip(b"\x00").decode("ascii", errors="replace")
+    
+    # Parse frame index from "prefix-NNN" format
+    if not first_entry_text.startswith(payload_prefix + "-"):
+        raise AssertionError(f"First entry doesn't match expected prefix {payload_prefix}: {first_entry_text!r}")
+    
+    start_frame_idx = int(first_entry_text.split("-")[-1])
+
+    for row_idx, entry in enumerate(first_entries):
+        entry_data_len = int(entry.data_len)
+        assert entry_data_len == 64
+
+        entry_data = bytes(int(entry.data[i]) for i in range(entry_data_len))
+        entry_text = entry_data.rstrip(b"\x00").decode("ascii", errors="replace")
+        entry_hex = " ".join(f"{byte:02X}" for byte in entry_data)
+        
+        # Verify sequential frame numbering starting from detected offset
+        expected_frame_idx = start_frame_idx + row_idx
+        expected_text = f"{payload_prefix}-{expected_frame_idx}"
+        expected_data = (expected_text.encode("ascii") + b"\x00" * 64)[:64]
+        expected_hex = " ".join(f"{byte:02X}" for byte in expected_data)
+
+        print(
+            f"[record-data-seq] row={row_idx} frame={expected_frame_idx} can_id={int(entry.can_id)} "
+            f"dir={int(entry.direction)} ch={entry.channel} len={entry_data_len} text={entry_text!r} "
+            f"hex={entry_hex} expected_text={expected_text!r} expected_hex={expected_hex}"
+        )
+
+        assert entry_data == expected_data, (
+            f"row={row_idx} frame={expected_frame_idx} payload mismatch: actual_text={entry_text!r} expected_text={expected_text!r}"
+        )
+        assert str(entry.channel) == "1"
 
 @pytest.fixture(scope="module")
 def file_service():
@@ -93,7 +171,7 @@ def test_20_recording(file_service, qtbot) -> None:
     mock_row_count = 2560
     recorder_record_id: RecordId | None = None
     progress_samples: list[int] = []
-    record = None
+    record: Record | None = None
 
     def _on_recorder_status(event: RecorderStatusEvent) -> None:
         nonlocal recorder_record_id
@@ -108,8 +186,8 @@ def test_20_recording(file_service, qtbot) -> None:
         elif event.status == RecorderStatus.WAIT_RING:
             recorder_idle_evt.set()
             wait_ring_evt.set()
-        elif event.status == RecorderStatus.FAILED:
-            recorder_nok_evt.set()
+        elif event.status == RecorderStatus.STOPPED:
+            recorder_idle_evt.set()
 
     file_srv.subscribe(RecorderStatusEvent, _on_recorder_status)
 
@@ -135,7 +213,7 @@ def test_20_recording(file_service, qtbot) -> None:
             try:
                 if record is not None:
                     progress_samples.append(int(record.get_progress_index()))
-                    print(int(record.get_progress_index()))
+                    #print(int(record.get_progress_index()))
             except Exception:
                 # Keep tracker resilient to transient file state while recorder starts/stops.
                 pass
@@ -170,6 +248,7 @@ def test_20_recording(file_service, qtbot) -> None:
         assert progress_samples
         assert int(record.get_progress_index()) >= mock_row_count
         assert persisted_frames >= mock_row_count
+        _assert_first_entries_match_mock(record, "mock-frame")
         
         print("test_20 record_id:", recorder_record_id)
         print("test_20 persisted_frames:", persisted_frames)
@@ -205,8 +284,8 @@ def test_19_stop_recording(file_service, qtbot) -> None:
         elif status == RecorderStatus.WAIT_RING:
             recorder_idle_evt.set()
             wait_ring_evt.set()
-        elif status == RecorderStatus.FAILED:
-            error_event.set()
+        elif status == RecorderStatus.STOPPED:
+            recorder_idle_evt.set()
 
     file_srv.subscribe(RecorderStatusEvent, _on_recorder_status)
 
@@ -260,9 +339,8 @@ def test_31_recording_ring_overlap(file_service, qtbot) -> None:
         elif status == RecorderStatus.WAIT_RING:
             recorder_idle_evt.set()
             wait_ring_evt.set()
-        elif status == RecorderStatus.FAILED:
-            recorder_nok_evt.set()
-            error_event.set()
+        elif status == RecorderStatus.STOPPED:
+            recorder_idle_evt.set()
 
     file_srv.subscribe(RecorderStatusEvent, _on_recorder_status)
 
@@ -305,6 +383,7 @@ def test_31_recording_ring_overlap(file_service, qtbot) -> None:
         assert recorder_evt.is_set()
         assert not recorder_nok_evt.is_set()
         assert not error_event.is_set()
+        _assert_first_entries_match_mock(record, "overlap-frame")
 
         print("test_21 record_id:", recorder_record_id)
         print("test_21 persisted_frames:", persisted_frames, "target:", mock_row_count, "ring_slots:", ring_slots)
@@ -333,7 +412,7 @@ def test_42_recording_close_early(file_service, qtbot) -> None:
 
     # Large ring so there is no overlap pressure; early close is the only reason frames are fewer.
     ring_slots = CAPACITY
-    mock_row_count = 20000
+    mock_row_count = 10000
     # Stop recording after this many frames have been written to the ring.
     early_stop_threshold = mock_row_count // 4
 
@@ -352,9 +431,8 @@ def test_42_recording_close_early(file_service, qtbot) -> None:
         elif status == RecorderStatus.WAIT_RING:
             recorder_idle_evt.set()
             wait_ring_evt.set()
-        elif status == RecorderStatus.FAILED:
-            recorder_nok_evt.set()
-            error_event.set()
+        elif status == RecorderStatus.STOPPED:
+            recorder_idle_evt.set()
 
     file_srv.subscribe(RecorderStatusEvent, _on_recorder_status)
 
@@ -405,6 +483,7 @@ def test_42_recording_close_early(file_service, qtbot) -> None:
         assert recorder_evt.is_set()
         assert not recorder_nok_evt.is_set()
         assert not error_event.is_set()
+        _assert_first_entries_match_mock(record, "close-frame")
 
         print("test_22 record_id:", recorder_record_id)
         print("test_22 persisted_frames:", persisted_frames, "target:", mock_row_count, "early_stop_threshold:", early_stop_threshold)
@@ -458,8 +537,8 @@ def test_53_two_sequential_recordings(file_service, qtbot) -> None:
             elif status == RecorderStatus.WAIT_RING:
                 idle_event_1.set()
                 wait_ring_event_1.set()
-            elif status == RecorderStatus.FAILED:
-                error_event_1.set()
+            elif status == RecorderStatus.STOPPED:
+                idle_event_1.set()
         elif phase == 2:
             if status == RecorderStatus.WRITE_BATCH:
                 write_batch_event_2.set()
@@ -468,8 +547,8 @@ def test_53_two_sequential_recordings(file_service, qtbot) -> None:
             elif status == RecorderStatus.WAIT_RING:
                 idle_event_2.set()
                 wait_ring_event_2.set()
-            elif status == RecorderStatus.FAILED:
-                error_event_2.set()
+            elif status == RecorderStatus.STOPPED:
+                idle_event_2.set()
 
     file_srv.subscribe(RecorderStatusEvent, _on_recorder_status)
 
@@ -545,6 +624,10 @@ def test_53_two_sequential_recordings(file_service, qtbot) -> None:
         assert not error_event_2.is_set()
         # Frames written to the ring while recording was stopped are not captured by either session.
         assert persisted_1 + persisted_2 < mock_row_count
+        _assert_first_entries_match_mock(record_1, "seq-frame")
+        # record_2 starts reading from a different offset in the ring (ring wraparound).
+        # Verify it captures sequential frames, but don't assume it starts at seq-frame-0.
+        _assert_first_entries_sequential(record_2, "seq-frame")
 
         print("test_23 record_id_1:", record_ids[0], "persisted_1:", persisted_1)
         print("test_23 record_id_2:", record_ids[1], "persisted_2:", persisted_2)

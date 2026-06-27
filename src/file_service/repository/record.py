@@ -54,60 +54,29 @@ class Record:
         if page_size <= 0:
             return []
         last_line = first_line + page_size - 1
-        status_code, entries = self.get_page_from_row_indices_with_status(first_line, page_size)
-        if status_code != 0:
-            raise RuntimeError(f"read_page failed with status_code={status_code}")
-        return entries
-
-    def get_page_from_row_indices_with_status(self, first_line: int, page_size: int) -> tuple[int, List[ParsedEntry]]:
-        if page_size <= 0:
-            return 0, []
-        last_line = first_line + page_size - 1
-        entries = self.__prs_data.read_page(first_line, last_line)
-        status_code = int(self.__prs_data.last_error_code())
-        return status_code, entries
+        return self.__prs_data.read_page(first_line, last_line)
 
     def get_page_from_can_id_row_indices(self, can_id: int, first_line: int, page_size: int) -> List[ParsedEntry]:
         if page_size <= 0:
             return []
         last_line = first_line + page_size - 1
-        status_code, entries = self.get_page_from_can_id_row_indices_with_status(can_id, first_line, page_size)
-        if status_code != 0:
-            raise RuntimeError(f"read_page_from_can_id failed with status_code={status_code}")
-        return entries
-
-    def get_page_from_can_id_row_indices_with_status(self, can_id: int, first_line: int, page_size: int) -> tuple[int, List[ParsedEntry]]:
-        if page_size <= 0:
-            return 0, []
-        last_line = first_line + page_size - 1
-        entries = self.__prs_data.read_page_from_can_id(can_id, first_line, last_line)
-        status_code = int(self.__prs_data.last_error_code())
-        return status_code, entries
+        return self.__prs_data.read_page_from_can_id(can_id, first_line, last_line)
 
     def get_page_from_can_ids_row_indices(self, can_ids: List[int], first_line: int, page_size: int) -> List[ParsedEntry]:
         if page_size <= 0:
             return []
         last_line = first_line + page_size - 1
-        status_code, entries = self.get_page_from_can_ids_row_indices_with_status(can_ids, first_line, page_size)
-        if status_code != 0:
-            raise RuntimeError(f"read_page_from_can_ids failed with status_code={status_code}")
-        return entries
-
-    def get_page_from_can_ids_row_indices_with_status(self, can_ids: List[int], first_line: int, page_size: int) -> tuple[int, List[ParsedEntry]]:
-        if page_size <= 0:
-            return 0, []
-        last_line = first_line + page_size - 1
-        entries = self.__prs_data.read_page_from_can_ids(can_ids, first_line, last_line)
-        status_code = int(self.__prs_data.last_error_code())
-        return status_code, entries
+        return self.__prs_data.read_page_from_can_ids(can_ids, first_line, last_line)
 
     def get_total_count_by_can_ids(self, can_ids: List[int]) -> int:
         # Not adapted yet for ParsedMmapInterface.
         raise NotImplementedError("get_total_count_by_can_ids is not adapted to ParsedMmapInterface yet")
 
     def get_first_last_timestamp(self) -> Tuple[Optional[float], Optional[float]]:
-        # Not adapted yet for ParsedMmapInterface.
-        raise NotImplementedError("get_first_last_timestamp is not adapted to ParsedMmapInterface yet")
+        first_ts, last_ts = self.__prs_data.get_first_last_timestamp()
+        if first_ts is None or last_ts is None:
+            return None, None
+        return float(first_ts), float(last_ts)
 
     def get_first_last_timestamp_by_can_ids(self, can_ids: List[int]) -> Tuple[Optional[float], Optional[float]]:
         # Not adapted yet for ParsedMmapInterface.
@@ -153,3 +122,6 @@ class Record:
             metadata["decoded"] = self.__decode_handler if self.has_decode_mmaps() else None
 
         return metadata
+
+    def get_all_entries(self) -> List[ParsedEntry]:
+        return self.__prs_data.read_all_entries()

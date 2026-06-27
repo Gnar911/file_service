@@ -4,7 +4,7 @@ from os.path import isfile
 
 from lw.logger_setup import LOG
 
-from ..parser.python.py_parser import LogParser
+from .parser.python.py_parser import LogParser
 
 
 class CANLogVerification:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from file_service.api.status import RecorderStatus
+from file_service.status import RecorderStatus
 
 
 # Backward-compatible alias to the public contract enum.

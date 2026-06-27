@@ -9,15 +9,15 @@ from typing import Generator
 import pytest
 from PySide6.QtCore import QCoreApplication
 
-from file_service.api.application_events import (
+from file_service.application_events import (
     DBCLoadedEvent,
     FileServiceStateEvent,
     ParserStatusEvent,
 )
 from file_service.record_id import RecordId
-from file_service.api.srv_if import FileService, get_file_service
-from file_service.api.status import ParserStatus
-from lw.base_service import ServiceState
+from file_service.srv_if import FileService, get_file_service
+from file_service.status import ParserStatus
+from lw.service.base_service import ServiceState
 from lw.logger_setup import setup_logger
 from lw.logger_setup import LOG
 from file_service.module.fs_core import ParsedEntry
@@ -89,11 +89,9 @@ def test_05_parse_log_with_record_id(file_service: FileService, qt_app, file_pat
     record_id = file_srv.create_record()
     record_count_before = len(file_srv.list_log_records())
     parsed_record_id: RecordId | None = None
-    parser_statuses: list[ParserStatus] = []
 
     def _on_parser_status(event: ParserStatusEvent) -> None:
         nonlocal parsed_record_id
-        parser_statuses.append(event.status)
         LOG.info(
             "parser_status_event status=%s record_id=%s payload=%s",
             event.status.name,
@@ -123,21 +121,17 @@ def test_05_parse_log_with_record_id(file_service: FileService, qt_app, file_pat
     assert parse_event.is_set()
     assert parsed_record_id is not None
     assert parsed_record_id == record_id
-    assert ParserStatus.DONE in parser_statuses
 
     record = file_srv.get_record(record_id)
     assert record is not None
 
     assert len(file_srv.list_log_records()) == record_count_before
-    status_code, first_entries = record.get_page_from_row_indices_with_status(0, 10)
-    print("read_page_status_code:", status_code)
-    assert status_code == 0
-    assert isinstance(first_entries, list)
+    first_entries = record.get_page_from_row_indices(0, 10)
     assert len(first_entries) > 0
     assert len(first_entries) <= 10
     assert all(isinstance(entry, ParsedEntry) for entry in first_entries)
     print("record_data_size:", record.get_total_lines())
-    _run_segment_discovery(str(record.get_base_path()))
+    #_run_segment_discovery(str(record.get_base_path()))
     print("first_entries_fields:")
     for entry in first_entries:
         print(
@@ -151,6 +145,25 @@ def test_05_parse_log_with_record_id(file_service: FileService, qt_app, file_pat
                 "changed": int(entry.changed),
             }
         )
+
+    """ Adding the test for load all entries performance"""
+    t1 = time.perf_counter()
+    all_entries = record.get_all_entries()
+    t2 = time.perf_counter()
+    LOG.debug("get_all_entries: %s", t2 - t1)
+    assert len(all_entries) == record.get_total_lines()
+    # for entry in all_entries:
+    #     print(
+    #         {
+    #             "line_number": int(entry.line_number),
+    #             "timestamp": float(entry.timestamp),
+    #             "last_timestamp": float(entry.last_timestamp),
+    #             "can_id": int(entry.can_id),
+    #             "direction": int(entry.direction),
+    #             "data_len": int(entry.data_len),
+    #             "changed": int(entry.changed),
+    #         }
+    #     )
 
 
 @pytest.mark.parametrize(

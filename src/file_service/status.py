@@ -3,13 +3,13 @@ from __future__ import annotations
 from enum import IntEnum
 
 
-class RecorderStatus(IntEnum):
-    IDLE = 0
-    WRITE_BATCH = 1
-    PAUSED = 2
-    WAIT_RING = 3
-    FAILED = 4
 
+
+class RecorderStatus(IntEnum):
+    WRITE_BATCH = 1 # Write state
+    PAUSED = 2
+    WAIT_RING = 3 # Wait state, right after start 
+    STOPPED = 4 # Stop, end service after that
 
 class ParserStatus(IntEnum):
     IDLE = 0

@@ -5,7 +5,7 @@ from typing import Any, Callable
 
 from lw.logger_setup import LOG
 from lw.observer import ObservableEvent
-from ..api.application_events import (
+from .application_events import (
     DBCLoadedEvent,
     DecodeCompletedEvent,
     DecodeFileNotFoundEvent,

@@ -9,7 +9,7 @@ import pytest
 from PySide6.QtCore import QCoreApplication
 
 from file_service.define import MMAP_LOCAL_STORAGE_DIR
-from file_service.api.application_events import (
+from file_service.application_events import (
     DBCLoadedEvent,
     DecodeCompletedEvent,
     FileServiceStateEvent,
@@ -17,8 +17,8 @@ from file_service.api.application_events import (
     RecorderStatusEvent,
 )
 from file_service.record_id import RecordId
-from file_service.api.srv_if import FileService, get_file_service
-from lw.base_service import ServiceState
+from file_service.srv_if import FileService, get_file_service
+from lw.service.base_service import ServiceState
 from lw.define import CAN_SHARED_RING_SHM_NAME
 
 TIMEOUT = 0.8

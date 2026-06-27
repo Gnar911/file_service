@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Iterable, Sequence
+from typing import Iterable, Optional, Sequence
 
 
 def abi_version() -> int: ...
@@ -45,7 +45,7 @@ class SignalDef:
 
 
 class DecodedSignal:
-    signal_name: str
+    signal_id: int
     raw_value: int
     phys_value: float
 
@@ -66,9 +66,7 @@ class ParsedEntry:
     can_id: int
     direction: int
     data_len: int
-    changed: int
-    data: list[int]
-    channel: str
+    changed: list[int]
 
     def __init__(self) -> None: ...
 
@@ -89,6 +87,7 @@ class ParsedMmapInterface:
     def read_page_from_channels(self, channels: Sequence[str], first: int, last: int) -> list[ParsedEntry]: ...
     def read_page_from_direction(self, direction: str, first: int, last: int) -> list[ParsedEntry]: ...
     def read_page_from_directions(self, directions: Sequence[str], first: int, last: int) -> list[ParsedEntry]: ...
+    def get_first_last_timestamp(self) -> tuple[Optional[float], Optional[float]]: ...
 
     def fetch_count(self) -> int: ...
     def last_error_code(self) -> int: ...
