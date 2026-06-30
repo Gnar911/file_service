@@ -74,8 +74,8 @@ class FileService(BaseService):
     def subscribe(self, event_type: type[Any], callback) -> None:
         self._dispatcher.subscribe(event_type, callback)
 
-    def subscribe_any(self, callback) -> None:
-        self._dispatcher.subscribe_any(callback)
+    def unsubscribe_all(self) -> None:
+        self._dispatcher.unsubscribe_all()
 
     def _require_running(self) -> None:
         if self.state != ServiceState.RUNNING:

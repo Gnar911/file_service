@@ -38,35 +38,28 @@ class RecorderProcess:
         self._writer = MmapBatchWriter(self._base_path)
         current_status = int(RecorderStatus.WAIT_RING)
         self._set_status(current_status)
-        last_write_idx = int(self._ring.write_idx)
+        # last_write_idx = int(self._ring.write_idx)
 
-        last_flush_t = time.perf_counter()
+        # last_flush_t = time.perf_counter()
         try:
             while not self._stop_event.is_set():
-                current_write_idx = int(self._ring.write_idx)
-                if current_write_idx == last_write_idx and current_status != int(RecorderStatus.WAIT_RING):
-                    current_status = int(RecorderStatus.WAIT_RING)
-                    self._set_status(current_status)
-
                 available = self._ring.available
-                if available >= BATCH_SIZE:
-                    current_status = self._write_batch(BATCH_SIZE, current_status)
-                    last_write_idx = current_write_idx
-                    last_flush_t = time.perf_counter()
+
+                if available == 0:
+                    if current_status != int(RecorderStatus.WAIT_RING):
+                        current_status = int(RecorderStatus.WAIT_RING)
+                        self._set_status(current_status)
+
+                    time.sleep(0.001)
                     continue
 
-                now_t = time.perf_counter()
-                if self._ring.should_flush_partial(available, last_flush_t, now_t):
-                    current_status = self._write_batch(available, current_status)
-                    last_write_idx = current_write_idx
-                    last_flush_t = now_t
-                    continue
-
-                self._ring.idle_wait()
+                #current_status = self._write_batch(available, current_status)
+                self._writer.write(self._ring.read_available())
 
             remaining = self._ring.available
             if remaining > 0:
                 current_status = self._write_batch(remaining, current_status)
+
             self._set_status(int(RecorderStatus.STOPPED))
 
         except Exception:

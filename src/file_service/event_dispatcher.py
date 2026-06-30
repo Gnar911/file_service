@@ -138,8 +138,8 @@ class FileServiceDispatcher:
             return
         event.subscribe(callback)
 
-    def subscribe_any(self, callback: Callable[[Any], None]) -> None:
-        self._any_subscribers.append(callback)
+    def unsubscribe_all(self) -> None:
+        for event in self._event_channels.values(): event.remove_all_subscribes()
 
     def _on_parser_wakeup(self, registration: ParserWorkerRegistration) -> None:
         self.on_parser_callback_event(registration)

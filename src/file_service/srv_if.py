@@ -88,8 +88,8 @@ class FileService:
     def subscribe(self, event_type: Type[Any], callback: Callable[[Any], None]) -> None:
         self._service.subscribe(event_type, callback)
 
-    def subscribe_any(self, callback: Callable[[Any], None]) -> None:
-        self._service.subscribe_any(callback)
+    def unsubscribe_all(self) -> None:
+        self._service.unsubscribe_all()
 
 
 class SingletonABCMeta(SingletonMeta, ABCMeta):

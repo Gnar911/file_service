@@ -45,36 +45,36 @@ class MmapBatchWriter:
         # Same as bytes_written for compatibility
         return self.bytes_written
 
-    def write(self, batch: List[CanLogRingPayload]) -> None:
-        """
-        Write a batch of ring payloads to segmented mmap.
-        """
-        if not batch:
-            return
+    # def write(self, batch: List[CanLogRingPayload]) -> None:
+    #     """
+    #     Write a batch of ring payloads to segmented mmap.
+    #     """
+    #     if not batch:
+    #         return
 
-        entries: List[ParsedEntry] = []
-        for i, payload in enumerate(batch):
-            entry = ParsedEntry()
-            entry.line_number = int(self._frames_written + i + 1)
-            entry.timestamp = float(payload.timestamp)
-            entry.last_timestamp = float(payload.timestamp)
-            entry.can_id = int(payload.can_id)
-            entry.direction = int(payload.direction) & 0xFF
-            entry.data_len = max(0, min(int(payload.data_len), 64))
-            entry.changed = 0
+    #     entries: List[ParsedEntry] = []
+    #     for i, payload in enumerate(batch):
+    #         entry = ParsedEntry()
+    #         entry.line_number = int(self._frames_written + i + 1)
+    #         entry.timestamp = float(payload.timestamp)
+    #         entry.last_timestamp = float(payload.timestamp)
+    #         entry.can_id = int(payload.can_id)
+    #         entry.direction = int(payload.direction) & 0xFF
+    #         entry.data_len = max(0, min(int(payload.data_len), 64))
+    #         entry.changed = 0
 
-            # #BUG: pybind11 ParsedEntry.data property ONLY accepts whole-vector assignment.
-            # Trying to index individual bytes like entry.data[j] = ... silently fails.
-            # Must assign the entire 64-byte array at once via property setter.
-            data_list = list(payload.data) + [0] * (64 - len(payload.data))
-            entry.data = data_list[:64]
+    #         # #BUG: pybind11 ParsedEntry.data property ONLY accepts whole-vector assignment.
+    #         # Trying to index individual bytes like entry.data[j] = ... silently fails.
+    #         # Must assign the entire 64-byte array at once via property setter.
+    #         data_list = list(payload.data) + [0] * (64 - len(payload.data))
+    #         entry.data = data_list[:64]
 
-            entry.channel = str(payload.channel)[:16]
-            entries.append(entry)
+    #         entry.channel = str(payload.channel)[:16]
+    #         entries.append(entry)
 
-        self.write_parsed_entries(entries)
+    #     self.write_parsed_entries(entries)
 
-    def write_parsed_entries(self, entries: List[ParsedEntry]) -> None:
+    def write(self, entries: List[ParsedEntry]) -> None:
         """
         Write parsed entries to segmented mmap using C++ API.
         This is the proper method to use instead of write().
@@ -95,12 +95,12 @@ class MmapBatchWriter:
         self._frames_written += len(entries)
         self._batch_write_count += 1
         
-        LOG.info(
-            "[RECORDER][MMAP] batch_written batch_no=%d frame_count=%d frames_written=%d",
-            int(self._batch_write_count),
-            len(entries),
-            int(self._frames_written),
-        )
+        # LOG.info(
+        #     "[RECORDER][MMAP] batch_written batch_no=%d frame_count=%d frames_written=%d",
+        #     int(self._batch_write_count),
+        #     len(entries),
+        #     int(self._frames_written),
+        # )
         self._write_state_file()
 
     def close(self) -> None:
@@ -124,8 +124,3 @@ class MmapBatchWriter:
             state_path_tmp.replace(self._state_path)
         except Exception:
             LOG.exception("[RECORDER][MMAP] failed to update staging state")
-
-    # No-op kept for compatibility with RecorderProcess._set_status().
-    # Recorder status now uses multiprocessing.Value in parent/child shared state.
-    def set_status(self, _status: int) -> None:
-        return
