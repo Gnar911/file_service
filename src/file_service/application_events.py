@@ -4,9 +4,8 @@ from dataclasses import dataclass, field
 import time
 from typing import Any
 
-from can_sdk.data_object import CANDBInfo
-from .record_id import RecordId
-from .status import RecorderStatus, ParserStatus, DecodeStatus
+from canapp.data_object import CANDBInfo
+from .metadata_id import DBCId, DecodeId, LogId
 
 
 @dataclass(slots=True)
@@ -21,14 +20,10 @@ class FileServiceStateEvent(FileDomainEvent):
 
 
 @dataclass(slots=True)
-class DecoderStatusEvent(FileDomainEvent):
-    kind: str = ""
-    payload: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(slots=True)
 class DecodeStartedEvent(FileDomainEvent):
-    record_id: RecordId | None = None
+    decode_id: DecodeId | None = None
+    log_id: LogId | None = None
+    dbc_id: DBCId | None = None
     file_path: str = ""
     db_file_path: str = ""
     expected_samples: int = 0
@@ -36,7 +31,9 @@ class DecodeStartedEvent(FileDomainEvent):
 
 @dataclass(slots=True)
 class DecodeCompletedEvent(FileDomainEvent):
-    record_id: RecordId | None = None
+    decode_id: DecodeId | None = None
+    log_id: LogId | None = None
+    dbc_id: DBCId | None = None
     file_path: str = ""
     db_file_path: str = ""
 
@@ -65,42 +62,24 @@ class DecodeSignalListEvent(FileDomainEvent):
 
 
 @dataclass(slots=True)
-class ParserStatusEvent(FileDomainEvent):
-    record_id: RecordId | None = None
-    status: ParserStatus = ParserStatus.IDLE
-    kind: str = ""
-    payload: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(slots=True)
-class DecodeStatusEvent(FileDomainEvent):
-    record_id: RecordId | None = None
-    status: DecodeStatus = DecodeStatus.IDLE
-    kind: str = ""
-    payload: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(slots=True)
 class DBCLoadedEvent(FileDomainEvent):
-    record_id: RecordId | None = None
+    dbc_id: DBCId | None = None
     db_file_path: str = ""
     candb_info: CANDBInfo | None = None
 
 
 @dataclass(slots=True)
-class FileWorkerHealthEvent(FileDomainEvent):
-    worker: str = ""
-    alive: bool = False
-    exit_code: int | None = None
+class ParserStatusEvent(FileDomainEvent):
+    status: int = -1
 
 
 @dataclass(slots=True)
-class FileWorkerRawStatusEvent(FileDomainEvent):
-    worker: str = ""
-    raw: Any = None
+class DecodeStatusEvent(FileDomainEvent):
+    status: int = -1
 
 
 @dataclass(slots=True)
 class RecorderStatusEvent(FileDomainEvent):
-    status: RecorderStatus = RecorderStatus.STOPPED
-    payload: dict[str, Any] = field(default_factory=dict)
+    status: int = -1
+
+

@@ -1,10 +1,44 @@
 """
-pybind11 bindings for ParsedMmapInterface
+pybind11 bindings for MetaDataStorageInterface
 """
 from __future__ import annotations
 import collections.abc
+import enum
 import typing
-__all__: list[str] = ['CanDecoder', 'DecodeError', 'DecodedSignal', 'FMT_CANCMD', 'FMT_CANCMD_T2', 'FMT_CANCMD_T3', 'FMT_CANOE', 'FMT_CANOE_CMP', 'FMT_CANOE_FULL', 'FMT_CANSUKE', 'FMT_FILTER', 'FMT_UNKNOWN', 'MessageDef', 'PARSER_STATUS_DONE', 'PARSER_STATUS_ERROR', 'PARSER_STATUS_RUNNING', 'LogRecord', 'ParsedEntry', 'ParsedMmapInterface', 'SignalDef', 'abi_version', 'can_decoder_run', 'parse_file', 'parse_file_with_fmt', 'parse_line', 'run_worker_segmented']
+__all__: list[str] = ['CanDatabaseModel', 'CanDecoder', 'DecodeError', 'DecodedSignal', 'EntryUpdate', 'FMT_ASC', 'FMT_BLF', 'FMT_CANCMD', 'FMT_CANCMD_T2', 'FMT_CANCMD_T3', 'FMT_CANOE', 'FMT_CANOE_CMP', 'FMT_CANOE_FULL', 'FMT_CANSUKE', 'FMT_FILTER', 'FMT_UNKNOWN', 'FormatType', 'LogQuery', 'LogRecord', 'MessageDef', 'MetaDataStorageInterface', 'PARSER_STATUS_DONE', 'PARSER_STATUS_ERROR', 'PARSER_STATUS_RUNNING', 'ParsedEntry', 'SignalDef', 'abi_version', 'can_decoder_run', 'parse_file', 'parse_file_with_fmt', 'parse_line', 'run_worker_segmented']
+class FormatType(enum.IntEnum):
+    CANOE = 1
+    CANOE_FULL = 2
+    CANOE_CMP = 3
+    CANCMD = 4
+    FILTER = 5
+    CANSUKE = 6
+    CANCMD_T2 = 7
+    CANCMD_T3 = 8
+    ASC = 9
+    BLF = 10
+
+class CanDatabaseModel:
+    def __init__(self) -> None:
+        ...
+    @property
+    def canid_to_msg(self) -> dict[int, int]:
+        ...
+    @canid_to_msg.setter
+    def canid_to_msg(self, arg0: collections.abc.Mapping[typing.SupportsInt | typing.SupportsIndex, typing.SupportsInt | typing.SupportsIndex]) -> None:
+        ...
+    @property
+    def messages(self) -> list[MessageDef]:
+        ...
+    @messages.setter
+    def messages(self, arg0: collections.abc.Sequence[MessageDef]) -> None:
+        ...
+    @property
+    def signals(self) -> list[SignalDef]:
+        ...
+    @signals.setter
+    def signals(self, arg0: collections.abc.Sequence[SignalDef]) -> None:
+        ...
 class CanDecoder:
     def __init__(self) -> None:
         ...
@@ -42,38 +76,50 @@ class DecodedSignal:
     @raw_value.setter
     def raw_value(self, arg0: typing.SupportsInt | typing.SupportsIndex) -> None:
         ...
-class MessageDef:
+class EntryUpdate:
+    record: LogRecord
     def __init__(self) -> None:
         ...
     @property
-    def can_id(self) -> int:
+    def row_index(self) -> int:
         ...
-    @can_id.setter
-    def can_id(self, arg0: typing.SupportsInt | typing.SupportsIndex) -> None:
+    @row_index.setter
+    def row_index(self, arg0: typing.SupportsInt | typing.SupportsIndex) -> None:
         ...
-    @property
-    def msg_length(self) -> int:
-        ...
-    @msg_length.setter
-    def msg_length(self, arg0: typing.SupportsInt | typing.SupportsIndex) -> None:
-        ...
-    @property
-    def padding(self) -> int:
-        ...
-    @padding.setter
-    def padding(self, arg0: typing.SupportsInt | typing.SupportsIndex) -> None:
+class LogQuery:
+    changed_only: bool
+    has_time_range: bool
+    def __init__(self) -> None:
         ...
     @property
-    def signal_count(self) -> int:
+    def can_ids(self) -> list[int]:
         ...
-    @signal_count.setter
-    def signal_count(self, arg0: typing.SupportsInt | typing.SupportsIndex) -> None:
+    @can_ids.setter
+    def can_ids(self, arg0: collections.abc.Sequence[typing.SupportsInt | typing.SupportsIndex]) -> None:
         ...
     @property
-    def signal_offset(self) -> int:
+    def channels(self) -> list[str]:
         ...
-    @signal_offset.setter
-    def signal_offset(self, arg0: typing.SupportsInt | typing.SupportsIndex) -> None:
+    @channels.setter
+    def channels(self, arg0: collections.abc.Sequence[str]) -> None:
+        ...
+    @property
+    def directions(self) -> list[int]:
+        ...
+    @directions.setter
+    def directions(self, arg0: collections.abc.Sequence[typing.SupportsInt | typing.SupportsIndex]) -> None:
+        ...
+    @property
+    def first_ts(self) -> float:
+        ...
+    @first_ts.setter
+    def first_ts(self, arg0: typing.SupportsFloat | typing.SupportsIndex) -> None:
+        ...
+    @property
+    def last_ts(self) -> float:
+        ...
+    @last_ts.setter
+    def last_ts(self, arg0: typing.SupportsFloat | typing.SupportsIndex) -> None:
         ...
 class LogRecord:
     channel: str
@@ -109,6 +155,68 @@ class LogRecord:
     @timestamp.setter
     def timestamp(self, arg0: typing.SupportsFloat | typing.SupportsIndex) -> None:
         ...
+class MessageDef:
+    def __init__(self) -> None:
+        ...
+    @property
+    def can_id(self) -> int:
+        ...
+    @can_id.setter
+    def can_id(self, arg0: typing.SupportsInt | typing.SupportsIndex) -> None:
+        ...
+    @property
+    def msg_length(self) -> int:
+        ...
+    @msg_length.setter
+    def msg_length(self, arg0: typing.SupportsInt | typing.SupportsIndex) -> None:
+        ...
+    @property
+    def padding(self) -> int:
+        ...
+    @padding.setter
+    def padding(self, arg0: typing.SupportsInt | typing.SupportsIndex) -> None:
+        ...
+    @property
+    def signal_count(self) -> int:
+        ...
+    @signal_count.setter
+    def signal_count(self, arg0: typing.SupportsInt | typing.SupportsIndex) -> None:
+        ...
+    @property
+    def signal_offset(self) -> int:
+        ...
+    @signal_offset.setter
+    def signal_offset(self, arg0: typing.SupportsInt | typing.SupportsIndex) -> None:
+        ...
+class MetaDataStorageInterface:
+    def __init__(self, mmap_prefix: str) -> None:
+        ...
+    def close_mmap(self) -> None:
+        ...
+    def close_storage(self) -> None:
+        ...
+    def fetch_count(self) -> int:
+        ...
+    def get_file_path(self) -> str:
+        ...
+    def get_first_last_timestamp(self) -> tuple:
+        ...
+    def last_error_code(self) -> int:
+        ...
+    def open_mmap(self) -> int:
+        ...
+    def open_storage(self) -> None:
+        ...
+    def read_all_entries(self) -> list[ParsedEntry]:
+        ...
+    def read_page(self, first: typing.SupportsInt | typing.SupportsIndex, last: typing.SupportsInt | typing.SupportsIndex) -> list[ParsedEntry]:
+        ...
+    def read_page_multi(self, query: LogQuery, first: typing.SupportsInt | typing.SupportsIndex, last: typing.SupportsInt | typing.SupportsIndex) -> list[ParsedEntry]:
+        ...
+    def update_entries(self, entry_updates: collections.abc.Sequence[EntryUpdate]) -> None:
+        ...
+    def write_entries(self, parsed_entries: collections.abc.Sequence[LogRecord]) -> None:
+        ...
 class ParsedEntry(LogRecord):
     def __init__(self) -> None:
         ...
@@ -129,41 +237,6 @@ class ParsedEntry(LogRecord):
         ...
     @line_number.setter
     def line_number(self, arg0: typing.SupportsInt | typing.SupportsIndex) -> None:
-        ...
-class ParsedMmapInterface:
-    def __init__(self, token_id: str) -> None:
-        ...
-    def close_mmap(self) -> None:
-        ...
-    def fetch_count(self) -> int:
-        ...
-    def get_first_last_timestamp(self) -> tuple:
-        ...
-    def last_error_code(self) -> int:
-        ...
-    def open_mmap(self) -> int:
-        ...
-    def read_all_entries(self) -> list[ParsedEntry]:
-        ...
-    def read_page(self, first: typing.SupportsInt | typing.SupportsIndex, last: typing.SupportsInt | typing.SupportsIndex) -> list[ParsedEntry]:
-        ...
-    def read_page_from_can_id(self, can_id: typing.SupportsInt | typing.SupportsIndex, first: typing.SupportsInt | typing.SupportsIndex, last: typing.SupportsInt | typing.SupportsIndex) -> list[ParsedEntry]:
-        ...
-    def read_page_from_can_id_changed(self, can_id: typing.SupportsInt | typing.SupportsIndex, first: typing.SupportsInt | typing.SupportsIndex, last: typing.SupportsInt | typing.SupportsIndex) -> list[ParsedEntry]:
-        ...
-    def read_page_from_can_ids(self, can_ids: collections.abc.Sequence[typing.SupportsInt | typing.SupportsIndex], first: typing.SupportsInt | typing.SupportsIndex, last: typing.SupportsInt | typing.SupportsIndex) -> list[ParsedEntry]:
-        ...
-    def read_page_from_can_ids_changed(self, can_ids: collections.abc.Sequence[typing.SupportsInt | typing.SupportsIndex], first: typing.SupportsInt | typing.SupportsIndex, last: typing.SupportsInt | typing.SupportsIndex) -> list[ParsedEntry]:
-        ...
-    def read_page_from_channel(self, channel: str, first: typing.SupportsInt | typing.SupportsIndex, last: typing.SupportsInt | typing.SupportsIndex) -> list[ParsedEntry]:
-        ...
-    def read_page_from_channels(self, channels: collections.abc.Sequence[str], first: typing.SupportsInt | typing.SupportsIndex, last: typing.SupportsInt | typing.SupportsIndex) -> list[ParsedEntry]:
-        ...
-    def read_page_from_direction(self, direction: str, first: typing.SupportsInt | typing.SupportsIndex, last: typing.SupportsInt | typing.SupportsIndex) -> list[ParsedEntry]:
-        ...
-    def read_page_from_directions(self, directions: collections.abc.Sequence[str], first: typing.SupportsInt | typing.SupportsIndex, last: typing.SupportsInt | typing.SupportsIndex) -> list[ParsedEntry]:
-        ...
-    def write_entries(self, parsed_entries: collections.abc.Sequence[ParsedEntry]) -> int:
         ...
 class SignalDef:
     def __init__(self) -> None:
@@ -218,25 +291,28 @@ class SignalDef:
         ...
 def abi_version() -> int:
     ...
-def can_decoder_run(parsed_mmap_token: str, decoder: CanDecoder) -> DecodeError:
+def can_decoder_run(parsed_mmap_token: str, model: CanDatabaseModel) -> DecodeError:
     ...
 def parse_file(path: str) -> list[ParsedEntry]:
     ...
-def parse_file_with_fmt(path: str, fmt: typing.SupportsInt | typing.SupportsIndex) -> list[ParsedEntry]:
+def parse_file_with_fmt(path: str, fmt: FormatType | typing.SupportsInt | typing.SupportsIndex) -> list[ParsedEntry]:
     ...
-def parse_line(line: str, line_num: typing.SupportsInt | typing.SupportsIndex = 0) -> ParsedEntry | None:
+def parse_line(line: str, fmt: FormatType | typing.SupportsInt | typing.SupportsIndex) -> typing.Any:
     ...
-def run_worker_segmented(file_path: str, token_id: str, fmt: typing.SupportsInt | typing.SupportsIndex) -> int:
+def run_worker_segmented(file_path: str, token_id: str, fmt: FormatType | typing.SupportsInt | typing.SupportsIndex) -> int:
     ...
-FMT_CANCMD: int = 4
-FMT_CANCMD_T2: int = 7
-FMT_CANCMD_T3: int = 8
-FMT_CANOE: int = 1
-FMT_CANOE_CMP: int = 3
-FMT_CANOE_FULL: int = 2
-FMT_CANSUKE: int = 6
-FMT_FILTER: int = 5
-FMT_UNKNOWN: int = 0
-PARSER_STATUS_DONE: int = 1
-PARSER_STATUS_ERROR: int = 2
-PARSER_STATUS_RUNNING: int = 0
+    
+# FMT_ASC: int = 9
+# FMT_BLF: int = 10
+# FMT_CANCMD: int = 4
+# FMT_CANCMD_T2: int = 7
+# FMT_CANCMD_T3: int = 8
+# FMT_CANOE: int = 1
+# FMT_CANOE_CMP: int = 3
+# FMT_CANOE_FULL: int = 2
+# FMT_CANSUKE: int = 6
+# FMT_FILTER: int = 5
+# FMT_UNKNOWN: int = 0
+# PARSER_STATUS_DONE: int = 1
+# PARSER_STATUS_ERROR: int = 2
+# PARSER_STATUS_RUNNING: int = 0

@@ -3,30 +3,31 @@ from __future__ import annotations
 import csv
 from datetime import datetime
 from typing import Any
+from pathlib import Path
 
 from can_sdk.data_object import CANLogLine
-from ..record_id import RecordId
-from ..repository.record_repository import RecordRepository
+from ..metadata_id import LogId
 
 
 class CANLogExport:
-    def __init__(self, repository: RecordRepository):
-        self.repository = repository
+    def __init__(self):
         self.db = None
         self.file_input = ""
 
-    def write_log_csv(self, file_key: RecordId | str, lines: list[CANLogLine], save_filepath: str | None = None) -> str | None:
-        canlf = self.repository.get_logfile_data(file_key)
-        if canlf is None:
+    def write_log_csv(self, file_key: LogId | str, lines: list[CANLogLine], save_filepath: str | None = None) -> str | None:
+        if not lines:
             return None
 
-        file_path = canlf.file_path
+        file_path = str(file_key)
         if not save_filepath:
             save_filepath = file_path + "_" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".csv"
+        Path(save_filepath).parent.mkdir(parents=True, exist_ok=True)
 
         with open(save_filepath, "w", newline="", encoding="utf-8") as handle:
             writer = csv.writer(handle)
-            msg_filt = canlf.group_messages_by_can_id(lines)
+            msg_filt: dict[int, list[CANLogLine]] = {}
+            for line in lines:
+                msg_filt.setdefault(int(line.can_id), []).append(line)
 
             for _, msg_lines in msg_filt.items():
                 writer.writerow([
@@ -68,36 +69,14 @@ class CANLogExport:
 
     def write_log_filtered(
         self,
-        input_path: RecordId | str,
+        input_path: LogId | str,
         output_path: str,
         time_range: tuple[float, float] | None = None,
         id_set: set[int] | None = None,
         signal_filters: dict[str, tuple[str, Any]] | None = None,
     ) -> str | None:
-        lines = self.repository.get_all_log_data(input_path)
-        if not lines:
-            return None
-
-        if time_range is not None:
-            lines = list(self.repository.get_messages_by_timestamp_range(input_path, time_range[0], time_range[1]))
-
-        if id_set:
-            lines = [line for line in lines if line.can_id in id_set]
-
-        if signal_filters:
-            def _match_signal_filters(line: CANLogLine) -> bool:
-                for sig_name, (op, expected) in signal_filters.items():
-                    signal = line.message_obj.signals.get(sig_name)
-                    if signal is None:
-                        return False
-                    actual = signal.raw_value
-                    if op == "==" and str(actual) != str(expected):
-                        return False
-                return True
-
-            lines = [line for line in lines if _match_signal_filters(line)]
-
-        return self.write_log_csv(input_path, lines, save_filepath=output_path)
+        _ = (time_range, id_set, signal_filters)
+        return self.write_log_csv(input_path, [], save_filepath=output_path)
 
     def write_log_filterd_by_time(self):
         return None

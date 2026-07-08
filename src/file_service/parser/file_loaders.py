@@ -5,16 +5,18 @@ from typing import Callable
 import pandas as pd
 from can import ASCReader, BLFReader
 
-from can_sdk.data_object import CANLogFile
+from canapp.data_object import CANLogFile
 from lw.logger_setup import LOG
 
-from ..repository.record_repository import CANLogRepository
+# from ..repository.record_repository import CANLogRepository
 from .define import PAGE_SIZE, get_file_type
 
-
+""" 20260707 NOTE: The python parse can log file is officialy deprecated. A can log file always being parse with the native C++ and with data base storage
+    A CSV file will need to be convert to the normal parse-able file before passing to C++ native
+"""
 class FileLoaderMixin:
     _ws_re: re.Pattern[str]
-    _various_parse_line_test: Callable[[str, int], bool]
+    detect_pattern: Callable[[str], int]
     _create_log_entry: Callable[..., object]
 
     def load_log_file(self, canlf: CANLogFile) -> bool:
@@ -34,6 +36,7 @@ class FileLoaderMixin:
             result = self._parse_from_file(canlf)
         return result
 
+    @DeprecationWarning
     def _parse_from_csv(self, canlf: CANLogFile):
         file_path = canlf.file_path
         parsed_count = 0
@@ -45,14 +48,14 @@ class FileLoaderMixin:
         for index, row in df.iterrows():
             line = " ".join(str(cell) for cell in row if pd.notna(cell))
             line_norm = self._ws_re.sub(" ", line.strip())
-            parsed = self._various_parse_line_test(line_norm, index)
-            if not parsed:
+            if not self.detect_pattern(line_norm):
                 continue
             parsed_count += 1
         canlf.total_lines = parsed_count
         LOG.info(f"{parsed_count}")
         return True
 
+    @DeprecationWarning
     def _parse_from_excel(self, canlf: CANLogFile):
         file_path = canlf.file_path
         parsed_count = 0
@@ -64,8 +67,7 @@ class FileLoaderMixin:
         for index, row in df.iterrows():
             line = " ".join(str(cell) for cell in row if pd.notna(cell))
             line_norm = self._ws_re.sub(" ", line.strip())
-            parsed = self._various_parse_line_test(line_norm, index)
-            if not parsed:
+            if not self.detect_pattern(line_norm):
                 continue
             parsed_count += 1
         canlf.total_lines = parsed_count
@@ -78,6 +80,7 @@ class FileLoaderMixin:
         if isinstance(channel, (list, tuple)):
             return ",".join(str(item) for item in channel)
         return str(channel)
+
 
     def _parse_from_asc(self, canlf: CANLogFile):
         file_path = canlf.file_path
@@ -128,3 +131,25 @@ class FileLoaderMixin:
                     reader.stop()
             except Exception:
                 pass
+
+    @DeprecationWarning
+    def _parse_from_file(self, canlf: CANLogFile):
+        print("_parse_from_file")
+        file_path = canlf.file_path
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                #batch = []
+                for i, line in enumerate(f, start=1):
+                    if i % PAGE_SIZE == 0:
+                            pass
+                    parsed =  self._parse_line(line.strip(), i)
+                    if not parsed:
+                        continue
+                    last_time = self.last_timestamp_by_id.get(parsed.can_id)
+                    self.last_timestamp_by_id[parsed.can_id] = parsed.timestamp
+                    parsed.cal_message_obj(last_time if last_time else parsed.timestamp)
+                    canlf.log_entries[i] = parsed
+                return True
+        except Exception as e:
+            LOG.error(f"Failed to read text log file: {e}")
+            return False

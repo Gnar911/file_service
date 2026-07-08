@@ -2,24 +2,23 @@
 from __future__ import annotations
 
 import multiprocessing as mp
-from pathlib import Path
 
 from file_service.decode.decode_source import decode_process
-from file_service.qt_object import IPCWakeup
+from lw.status_channel import StatusChannel
+from file_service.metadata_id import LogId
+# from file_service.qt_object import IPCWakeup
 from lw.logger_setup import LOG
 from file_service.status import DecodeStatus
 
 
 def run_decode_async(
-    record_mmap_path: Path,
-    db_file_path: str,
-    wakeup: IPCWakeup,
+    record_mmap_path: LogId,
+    state: StatusChannel,
     dbc_pkl_path: str,
-    state,
 ) -> mp.Process:
     proc = mp.Process(
         target=_run_decode_job,
-        args=(record_mmap_path, db_file_path, wakeup, dbc_pkl_path, state),
+        args=(record_mmap_path, state, dbc_pkl_path),
         daemon=True,
         name="FileService-decoder",
     )
@@ -28,18 +27,15 @@ def run_decode_async(
 
 
 def _run_decode_job(
-    record_mmap_path: Path,
-    db_file_path: str,
-    wakeup: IPCWakeup,
+    record_mmap_path: LogId,
+    state: StatusChannel,
     dbc_pkl_path: str,
-    state,
 ) -> None:
     try:
-        state.value = int(DecodeStatus.RUNNING)
-        rc = int(decode_process(record_mmap_path, db_file_path, wakeup, dbc_pkl_path))
-        state.value = int(DecodeStatus.DONE if rc == 0 else DecodeStatus.FAILED)
+        rc = int(decode_process(record_mmap_path, state, dbc_pkl_path))
+        state.mc_send(int(DecodeStatus.DONE if rc == 0 else DecodeStatus.FAILED))
     except Exception as exc:
-        state.value = int(DecodeStatus.FAILED)
+        state.mc_send(int(DecodeStatus.FAILED))
         LOG.error("Decode worker failed: %s", exc)
     finally:
-        wakeup.signal()
+        return

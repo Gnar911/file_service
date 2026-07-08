@@ -2,9 +2,6 @@ from __future__ import annotations
 
 from enum import IntEnum
 
-
-
-
 class RecorderStatus(IntEnum):
     WRITE_BATCH = 1 # Write state
     PAUSED = 2
@@ -12,17 +9,15 @@ class RecorderStatus(IntEnum):
     STOPPED = 4 # Stop, end service after that
 
 class ParserStatus(IntEnum):
-    IDLE = 0
-    RUNNING = 1
-    DONE = 2
-    FAILED = 3
+    # IDLE = 0
+    DONE = 0
+    FAILED = 1
 
 
 class DecodeStatus(IntEnum):
-    IDLE = 0
-    RUNNING = 1
-    DONE = 2
-    FAILED = 3
+    # IDLE = 0
+    DONE = 0
+    FAILED = 1
 
 
 __all__ = [

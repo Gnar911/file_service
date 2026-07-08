@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import List
 
 from lw.logger_setup import LOG
-from file_service.module.fs_core import ParsedEntry, ParsedMmapInterface
+from file_service.module.fs_core import ParsedEntry, MetaDataStorageInterface
 from file_service.repository.file_handler.ring_handler import CanLogRingPayload
 
 
@@ -23,8 +23,8 @@ class MmapBatchWriter:
         self._opened = False
         self._closed = False
 
-        # Open and initialise mmap writers through pybind ParsedMmapInterface.
-        self._handler = ParsedMmapInterface(str(self._token_id))
+        # Open and initialise mmap writers through pybind MetaDataStorageInterface.
+        self._handler = MetaDataStorageInterface(str(self._token_id))
         self._handler.open_mmap()
         self._opened = True
 
@@ -88,7 +88,7 @@ class MmapBatchWriter:
         # write_entries() returns int32_t error code from C++
         write_error_code = int(self._handler.write_entries(entries))
         if write_error_code != 0:
-            error_msg = f"ParsedMmapInterface::write_entries failed with error code {write_error_code}"
+            error_msg = f"MetaDataStorageInterface::write_entries failed with error code {write_error_code}"
             LOG.error("[RECORDER][MMAP] %s", error_msg)
             raise RuntimeError(error_msg)
 

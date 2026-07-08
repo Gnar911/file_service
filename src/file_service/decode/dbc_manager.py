@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, Optional
 
 import cantools
-from can_sdk.data_object import CANDBInfo, CANDBInfoType
+from canapp.data_object import CANDBInfo, CANDBInfoType
 from lw.logger_setup import LOG
 from lw.observer import ObservableEvent
 

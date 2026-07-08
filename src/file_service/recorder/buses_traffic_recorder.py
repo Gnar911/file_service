@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from file_service.metadata_id import LogId
 from file_service.recorder.rcd_process import RecorderProcess
 
 """
@@ -35,15 +36,13 @@ Doesn't work if another process only knows the shm name.
 """
 def writer_process(
     shm_name: str,
-    base_path: str,
+    log_id: LogId,
     stop_event,
-    wakeup,
     state,
 ):
     RecorderProcess(
         shm_name=shm_name,
-        base_path=base_path,
+        log_id=log_id,
         stop_event=stop_event,
-        wakeup=wakeup,
         state=state,
     ).run()

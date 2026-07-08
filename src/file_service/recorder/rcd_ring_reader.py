@@ -5,7 +5,6 @@ from typing import List
 
 from lw.logger_setup import LOG
 from lw.shared_ring_buf import SharedRingBuffer
-from file_service.module.fs_core import ParsedMmapInterface, LogRecord
 from file_service.module.fs_core import LogRecord
 import struct
 
@@ -59,7 +58,6 @@ class LogRecordCodec:
 class LogRecordRing(SharedRingBuffer[LogRecord]):
     CODEC = LogRecordCodec
 
-_PARTIAL_FLUSH_IDLE_S = 0.02
 class SharedMemoryRingReader:
     def __init__(self, shm_name: str):
         self._ring = LogRecordRing(mmap_name=str(shm_name), create=False)
@@ -132,7 +130,7 @@ class SharedMemoryRingReader:
     #     self._read_idx += batch_count
     #     return payloads
 
-    def close(self) -> None:
-        self._ring.close()
+    # def close(self) -> None:
+    #     self._ring.close()
 
 __all__ = ["SharedMemoryRingReader"]

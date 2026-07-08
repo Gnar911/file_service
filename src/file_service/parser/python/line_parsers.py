@@ -1,7 +1,7 @@
 import re
 from typing import Callable, Optional, cast
 
-from can_sdk.data_object import CANLogLine
+from canapp.data_object import CANLogLine
 from lw.logger_setup import LOG
 
 from ..define import CANFD_DLC_MAP
@@ -25,17 +25,6 @@ class LineParserMixin:
                     if len(next_token) == 2 and next_token[0] in self._HEX_CHARS and next_token[1] in self._HEX_CHARS:
                         return value, index
         return None, None
-
-    def _various_parse_line_test(self, line: str, line_number: int):
-        raw_line = line.rstrip("\n")
-        normalized = self._ws_re.sub(" ", raw_line.strip())
-        for pattern, func in self.pattern_parsers:
-            match = pattern.match(normalized)
-            if match:
-                result = func(raw_line, line_number)
-                self.detected_parser = func
-                return result
-        return None
 
     def _is_detected_parser(self, line: str, line_number: int) -> bool:
         normalized = self._ws_re.sub(" ", line.strip())
@@ -91,28 +80,25 @@ class LineParserMixin:
         )
 
     def _parse_filter_log(self, line: str, line_number: int) -> Optional[CANLogLine]:
-        try:
-            tokens = line.split()
-            timestamp = float(tokens[0])
-            direction = "Tx" if "Tx" in tokens else "Rx"
-            dir_idx = tokens.index(direction)
-            can_id = tokens[dir_idx + 1]
-            message_name = tokens[dir_idx + 2] if len(tokens) > dir_idx + 2 else ""
-            dlc, dlc_idx = self._find_dlc_with_hex_payload(tokens)
-            if dlc_idx is None or dlc is None:
-                return None
-            data_list = tokens[dlc_idx + 1:dlc_idx + 1 + dlc]
-            return self._create_log_entry(
-                line_number=line_number,
-                timestamp=timestamp,
-                can_id_hex=can_id,
-                direction=direction,
-                data_len=dlc,
-                raw_data=" ".join(data_list),
-                message_name=message_name,
-            )
-        except Exception:
+        tokens = line.split()
+        timestamp = float(tokens[0])
+        direction = "Tx" if "Tx" in tokens else "Rx"
+        dir_idx = tokens.index(direction)
+        can_id = tokens[dir_idx + 1]
+        message_name = tokens[dir_idx + 2] if len(tokens) > dir_idx + 2 else ""
+        dlc, dlc_idx = self._find_dlc_with_hex_payload(tokens)
+        if dlc_idx is None or dlc is None:
             return None
+        data_list = tokens[dlc_idx + 1:dlc_idx + 1 + dlc]
+        return self._create_log_entry(
+            line_number=line_number,
+            timestamp=timestamp,
+            can_id_hex=can_id,
+            direction=direction,
+            data_len=dlc,
+            raw_data=" ".join(data_list),
+            message_name=message_name,
+        )
 
     def _parse_canoe(self, line: str, line_number: int) -> Optional[CANLogLine]:
         parts = line.split(None, 5)
