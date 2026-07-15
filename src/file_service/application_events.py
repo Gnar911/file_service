@@ -67,10 +67,10 @@ class DBCLoadedEvent(FileDomainEvent):
     db_file_path: str = ""
     candb_info: CANDBInfo | None = None
 
-
 @dataclass(slots=True)
 class ParserStatusEvent(FileDomainEvent):
     status: int = -1
+    log_id: LogId | None = None
 
 
 @dataclass(slots=True)

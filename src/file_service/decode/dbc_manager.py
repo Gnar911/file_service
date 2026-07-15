@@ -62,22 +62,21 @@ class CANDBManager:
                     dst.write(line)
         return abspath(temp_file)
 
-    def load_database(self, file_path: str, dump_pkl_path: str | Path | None = None):
+    def load_database(self, file_path: str, dump_pkl_path: str | Path):
         res = self.read_from_db(file_path)
         if file_path in self._candb_dict:
             self.db_path_ogirin = file_path
         candb_info = self._candb_dict.get(file_path)
         if candb_info is None:
             return None
-        if dump_pkl_path is not None:
-            try:
-                pkl_path = Path(dump_pkl_path)
-                pkl_path.parent.mkdir(parents=True, exist_ok=True)
-                with pkl_path.open("wb") as pkl_file:
-                    pickle.dump(candb_info, pkl_file, protocol=pickle.HIGHEST_PROTOCOL)
-            except Exception:
-                LOG.exception("Failed to dump DBC pkl to %s", dump_pkl_path)
-                return None
+        try:
+            pkl_path = Path(dump_pkl_path)
+            pkl_path.parent.mkdir(parents=True, exist_ok=True)
+            with pkl_path.open("wb") as pkl_file:
+                pickle.dump(candb_info, pkl_file, protocol=pickle.HIGHEST_PROTOCOL)
+        except Exception:
+            LOG.exception("Failed to dump DBC pkl to %s", dump_pkl_path)
+            return None
         self.event_on_db_loaded.notify(candb_info)
         return res
 

@@ -8,23 +8,10 @@ class NativeParser:
     @classmethod
     def run_native_to_mmap(cls, file_path: str, token_id: str) -> bool:
         cls.file_path = file_path
-        # Use unified enum detection and only forward native-supported formats.
-        from file_service.parser.py_parser import LogParser
-
-        fmt = LogParser().detect_custom_format(file_path)
-        if fmt in (FormatType.UNKNOWN, FormatType.ASC, FormatType.BLF):
-            fmt = None
-        else:
-            fmt = int(fmt)
-        if fmt is None:
-            LOG.warning("No parser detected for file format")
-            return False
-
+        rc = run_worker_segmented(file_path, str(token_id))
         try:
-            rc = run_worker_segmented(file_path, str(token_id), int(fmt))
-            return rc == 0
-        except Exception as error:
-            LOG.error(f"C++ segmented run failed: {error}")
+            return int(rc) == 0
+        except Exception:
             return False
 
     @classmethod

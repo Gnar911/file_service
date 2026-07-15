@@ -2,8 +2,6 @@ from .fs_core import (
     CanDatabaseModel,
     CanDecoder,
     DecodedSignal,
-    EntryUpdate,
-    FormatType,
     LogQuery,
     MessageDef,
     MetaDataStorageInterface,
