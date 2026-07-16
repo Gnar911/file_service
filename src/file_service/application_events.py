@@ -64,7 +64,7 @@ class DecodeSignalListEvent(FileDomainEvent):
 @dataclass(slots=True)
 class DBCLoadedEvent(FileDomainEvent):
     dbc_id: DBCId | None = None
-    candb_info: CANDBInfo | None = None
+    candb_info: CANDBInfo
 
 @dataclass(slots=True)
 class ParserStatusEvent(FileDomainEvent):

@@ -46,7 +46,7 @@ class LogQuery:
 class LogRecord:
     can_id: int
     channel: str
-    data: list[int]
+    data: bytes
     data_len: int
     direction: int
     timestamp: float

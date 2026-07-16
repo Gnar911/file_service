@@ -37,6 +37,7 @@ from lw.status_channel import StatusChannel
 from lw.qt.qt_dispatcher import QtEventLoopDispatcher
 from lw.singleton import SingletonMeta
 from lw.MainThreadDispatcher import MainThreadDispatcher
+from canapp.data_object import CANLogLine
 
 
 @dataclass(frozen=True)
@@ -79,6 +80,9 @@ class FileService(BaseService):
         self._dispatcher = FileServiceDispatcher()
 
         self._executor = ProcessPoolExecutor(max_workers=1)
+        # Thread executor for lightweight tasks (DBC parsing)
+        from concurrent.futures import ThreadPoolExecutor
+        self._dbc_executor = ThreadPoolExecutor(max_workers=1)
         
 
     def _do_start(self) -> None:
@@ -176,27 +180,58 @@ class FileService(BaseService):
                 evt = ParserStatusEvent(status=int(ParserStatus.DONE), log_id=log_id)
                 self._main_dispatcher.post(partial(self._dispatcher.dispatch_event, evt))
 
-    """ NOTE: Make the parse_dbc_file return the result immediately here will make other viewmodels listeners unknown about the status"""
+    """ NOTE: Make the parse_dbc_file return the result immediately here will make other viewmodels listeners unknown about the status
+        The exception terminates the thread.
+        Python prints a traceback to stderr (unless you've overridden threading.excepthook).
+        worker.join() returns normally.
+        The exception is not propagated to the thread that called join() -> can not handle the failed case.
+    """
+    # def parse_dbc_file(self, db_file_path: str):
+    #     self._require_running()
+
+    #     dbc_id = DBCId.new()
+
+    #     worker = threading.Thread(
+    #         target=self._dbc_manager.parse_database,
+    #         args=(db_file_path, dbc_id.path_token()),
+    #         daemon=True,
+    #         name="FileService-dbc-loader",
+    #     )
+    #     worker.start()
+    #     worker.join()
+    #     candb_info = self._dbc_manager.load_database()
+    #     evt = DBCLoadedEvent(dbc_id=dbc_id, candb_info=candb_info)
+    #     self._main_dispatcher.post(partial(self._dispatcher.dispatch_event, evt))
+    
     def parse_dbc_file(self, db_file_path: str):
         self._require_running()
 
         dbc_id = DBCId.new()
-
-        worker = threading.Thread(
-            target=self._dbc_manager.load_database,
-            args=(db_file_path, dbc_id.path_token()),
-            daemon=True,
-            name="FileService-dbc-loader",
+        future = self._dbc_executor.submit(
+            self._dbc_manager.parse_database,
+            db_file_path,
+            dbc_id,
         )
-        worker.start()
-        worker.join()
-        candb_info = self._dbc_manager.current
 
-        evt = DBCLoadedEvent(dbc_id=dbc_id, candb_info=candb_info)
-        self._main_dispatcher.post(partial(self._dispatcher.dispatch_event, evt))
-    
-    def get_candb_data(self, id: DBCId) -> CANDBInfo | None:
-        return self._dbc_manager.current
+        def _on_done(fut):
+            try:
+                # will raise if parse failed
+                fut.result()
+                # NOTE: No need here
+                #candb_info = self._dbc_manager.load_database(dbc_id)
+                evt = DBCLoadedEvent(dbc_id=dbc_id, candb_info=None)
+                self._main_dispatcher.post(partial(self._dispatcher.dispatch_event, evt))
+            except Exception:
+                # NOTE: trace for all exception error, handle as failed case
+                LOG.exception("DBC loading failed")
+                evt = DBCLoadedEvent(dbc_id=None, candb_info=None)
+                self._main_dispatcher.post(partial(self._dispatcher.dispatch_event, evt))
+
+        future.add_done_callback(_on_done)
+        return dbc_id
+
+    def get_candb_data(self, id: DBCId) -> CANDBInfo:
+        return self._dbc_manager.load_database(id)
 
     def decode(self, log_id: LogId, dbc_id: DBCId) -> DecodeId | None:
         self._require_running()
