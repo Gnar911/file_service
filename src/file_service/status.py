@@ -9,7 +9,7 @@ class RecorderStatus(IntEnum):
     STOPPED = 4 # Stop, end service after that
 
 class ParserStatus(IntEnum):
-    # IDLE = 0
+    STARTED = 2
     DONE = 0
     FAILED = 1
 

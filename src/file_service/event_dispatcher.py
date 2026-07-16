@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from typing import Any, Callable
+"""
+    20260715 NOTE:
+    This is the dispatcher for application events however, it should not be a normal callback function,
+    instead the application will do the UI update then the callback should be executed on the application event loop.
+    So this will be implemeted as the MainThreadDispatcher Interface on trying to be framework-independent
+"""
+from typing import Any, Callable, Protocol
 
 from lw.logger_setup import LOG
 from lw.observer import ObservableEvent
@@ -17,7 +23,6 @@ from .application_events import (
     RecorderStatusEvent,
 )
 from file_service.status import ParserStatus, DecodeStatus, RecorderStatus
-
 
 class FileServiceDispatcher:
     def __init__(self) -> None:
