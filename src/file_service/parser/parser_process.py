@@ -1,6 +1,6 @@
 import multiprocessing as mp
 
-from lw.platform.linux_platform import _set_linux_process_name
+from lw.lw_platform.linux_platform import _set_linux_process_name
 from file_service.metadata_id import LogId
 # from file_service.qt_object import IPCWakeup
 from lw.status_channel import StatusChannel

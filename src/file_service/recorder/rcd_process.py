@@ -7,7 +7,7 @@ from lw.status_channel import StatusChannel
 from file_service.define import DATA_DIR
 from file_service.metadata_id import LogId
 from lw.logger_setup import LOG
-from lw.platform.linux_platform import _set_linux_process_name
+from lw.lw_platform.linux_platform import _set_linux_process_name
 from file_service.repository.file_handler.ring_handler import BATCH_SIZE
 from file_service.recorder.rcd_batch_writer import MmapBatchWriter
 from file_service.status import RecorderStatus

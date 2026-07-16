@@ -36,67 +36,6 @@ CANDBInfo
 Display
 
 """
-# class CANDBManager:
-#     """DBC parser/holder for decode flow.
-
-#     This manager does not own pkl paths and does not support mixed DB mode.
-#     Repository/service layers own persistence paths.
-#     """
-#     def __init__(self):
-#         self._candb_dict: Dict[str, CANDBInfo] = {}
-#         self._cur_sel_db: Optional[str] = None
-#         self.event_on_db_changed = ObservableEvent()
-#         self.event_on_db_list_changed = ObservableEvent()
-#         self.event_on_db_loaded = ObservableEvent(CANDBInfo)
-#         self._storage = PickleStorage()
-
-#     @property
-#     def candb_dict(self) -> Dict[str, CANDBInfo]:
-#         return self._candb_dict
-
-#     @property
-#     def db_path_ogirin(self) -> Optional[str]:
-#         return self._cur_sel_db
-
-#     @db_path_ogirin.setter
-#     def db_path_ogirin(self, new_path: Optional[str]) -> None:
-#         if new_path == self._cur_sel_db:
-#             return
-#         self._cur_sel_db = new_path
-#         self.event_on_db_changed.notify()
-
-#     def clear_model(self) -> None:
-#         self._cur_sel_db = None
-#         self._candb_dict = {}
-#         self.event_on_db_list_changed.notify()
-
-#     def get_main_db_file(self) -> Optional[str]:
-#         return self._cur_sel_db
-
-#     def get_list_all_db_file(self) -> list[str]:
-#         return list(self._candb_dict.keys())
-
-
-    #""" NOTE: Load database means load database on the disk pkl file"""
-    # def load_database(self, file_path: str, dump_pkl_path: str | Path):
-    #     res = self.read_from_db(file_path)
-    #     if file_path in self._candb_dict:
-    #         self.db_path_ogirin = file_path
-    #     candb_info = self._candb_dict.get(file_path)
-    #     if candb_info is None:
-    #         return None
-    #     try:
-    #         pkl_path = Path(dump_pkl_path)
-    #         pkl_path.parent.mkdir(parents=True, exist_ok=True)
-    #         with pkl_path.open("wb") as pkl_file:
-    #             pickle.dump(candb_info, pkl_file, protocol=pickle.HIGHEST_PROTOCOL)
-    #     except Exception:
-    #         LOG.exception("Failed to dump DBC pkl to %s", dump_pkl_path)
-    #         return None
-    #     self.event_on_db_loaded.notify(candb_info)
-    #     return res
-        
-
 class CANDBManager:
     """
     Hold the currently loaded CAN database.
